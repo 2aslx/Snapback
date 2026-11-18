@@ -119,13 +119,16 @@ class SnapbackApi {
     return _post('/api/analyze', {'image': imageDataUrl});
   }
 
+  /// [wantQuestion] — '질문 한 번 더하기': 서버가 후보를 가를 질문을 반드시 하나 만든다.
   Future<SearchResponse> searchMemory(
     List<PhotoItem> db,
-    List<String> hist,
-  ) async {
+    List<String> hist, {
+    bool wantQuestion = false,
+  }) async {
     final data = await _post('/api/search', {
       'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
       'hist': hist,
+      if (wantQuestion) 'wantQuestion': true,
     });
     final ranked = (data['ranked'] as List? ?? const [])
         .whereType<Map<String, dynamic>>()
@@ -137,5 +140,21 @@ class SnapbackApi {
         ? SearchQuestion.fromJson(qRaw)
         : null;
     return SearchResponse(ranked: ranked, question: question);
+  }
+
+  /// AI 대화형 앨범: 자연어 요청 → (앨범 이름, 고른 사진 id)
+  Future<(String, List<int>)> composeAlbum(
+    List<PhotoItem> db,
+    String request,
+  ) async {
+    final data = await _post('/api/album', {
+      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+      'request': request,
+    });
+    final ids = (data['ids'] as List? ?? const [])
+        .whereType<num>()
+        .map((e) => e.toInt())
+        .toList();
+    return ((data['title'] ?? '').toString(), ids);
   }
 }

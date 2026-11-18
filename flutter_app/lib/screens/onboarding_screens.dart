@@ -174,7 +174,8 @@ class Screen3Order extends StatelessWidget {
         SnapButton(
           label: '분석 시작',
           onTap: () {
-            s.go(4);
+            // 전체 화면 대신 홈으로 — 진행 상황은 하단 진행 바에서 확인
+            s.go(5);
             s.startAnalysis();
           },
         ),

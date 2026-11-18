@@ -100,6 +100,14 @@ class SnapbackState extends ChangeNotifier {
   bool searchCompleted = false;
   bool searchBusy = false;
   String? searchError;
+  /// '질문 한 번 더하기'를 눌러 질문이 보이는 상태 (검색 직후에는 맨 위 사진 + 버튼만)
+  bool questionShown = false;
+
+  // AI 대화형 앨범 (Screen 11 → 17 미리보기)
+  bool albumBusy = false;
+  String? albumError;
+  AlbumSuggestion? albumDraft;
+  final Set<int> albumDraftSelected = {};
 
   // Memory detail (Screen 10)
   int activeMemoryId = 1;
@@ -111,7 +119,6 @@ class SnapbackState extends ChangeNotifier {
   // Albums (Screen 11, 16) — 미리 정한 카테고리 없이, 검색 결과 제안으로만 만든다.
   List<PhotoAlbum> albums = [];
   int? activeAlbumId;
-  bool _albumSuggestionDismissed = false;
   int? lastCreatedAlbumId; // 이번 검색에서 만든 앨범 (완료 안내용)
 
   // Usability test (Screen 14)
@@ -434,8 +441,6 @@ class SnapbackState extends ChangeNotifier {
     searchHistory
       ..clear()
       ..add(q);
-    _albumSuggestionDismissed = false;
-    lastCreatedAlbumId = null;
     await _runSearch();
   }
 
@@ -446,7 +451,18 @@ class SnapbackState extends ChangeNotifier {
     await _runSearch();
   }
 
-  Future<void> _runSearch() async {
+  /// '질문 한 번 더하기' — 검색을 처음부터 하지 않고 지금 맥락(searchHistory)에 질문 하나를 더한다.
+  Future<void> askMore() async {
+    if (searchBusy || searchResults.isEmpty) return;
+    if (activeQuestion != null) {
+      questionShown = true; // 서버가 이미 만들어 둔 질문이 있으면 바로 보여줌
+      notifyListeners();
+      return;
+    }
+    await _runSearch(wantQuestion: true);
+  }
+
+  Future<void> _runSearch({bool wantQuestion = false}) async {
     if (!serverConnected) {
       searchError = ApiException('network').userMessage;
       searchResults = [];
@@ -458,10 +474,15 @@ class SnapbackState extends ChangeNotifier {
     searchBusy = true;
     searchError = null;
     searchCompleted = false;
+    questionShown = false;
     notifyListeners();
 
     try {
-      final res = await api.searchMemory(visiblePhotos, searchHistory);
+      final res = await api.searchMemory(
+        visiblePhotos,
+        searchHistory,
+        wantQuestion: wantQuestion,
+      );
       searchResults = res.ranked.take(5).toList();
       if (testSession != null && testSession!.firstRank == null) {
         final idx = searchResults.indexWhere((x) => x.id == testSession!.targetId);
@@ -474,6 +495,7 @@ class SnapbackState extends ChangeNotifier {
       } else {
         searchCompleted = true;
       }
+      questionShown = wantQuestion;
     } on ApiException catch (e) {
       searchError = e.userMessage;
     } catch (e) {
@@ -500,44 +522,70 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 검색 결과를 앨범으로 묶자는 제안. 보여줄 게 없으면 null.
-  AlbumSuggestion? get albumSuggestion {
-    if (testSession != null ||
-        searchBusy ||
-        searchError != null ||
-        _albumSuggestionDismissed ||
-        lastCreatedAlbumId != null ||
-        searchHistory.isEmpty ||
-        searchResults.isEmpty) {
-      return null;
+  /// AI 대화형 앨범: 요청을 보내 후보를 받고 미리보기(17)로 이동. 바로 저장하지 않는다.
+  Future<void> composeAlbum(String request) async {
+    final q = request.trim();
+    if (q.isEmpty || albumBusy) return;
+    if (!serverConnected) {
+      albumError = ApiException('network').userMessage;
+      notifyListeners();
+      return;
     }
-    final byId = {for (final d in db) d.id: d};
-    final ranked = searchResults.where((x) => byId.containsKey(x.id)).toList()
-      ..sort((a, b) => b.score.compareTo(a.score));
-    if (ranked.isEmpty) return null;
-    // 일치 확률 50% 이상인 사진을 묶는다 (없으면 1순위만)
-    var ids = ranked.where((x) => x.score >= 50).map((x) => x.id).toList();
-    if (ids.isEmpty) ids = [ranked.first.id];
-    // 같은 사진 묶음의 앨범이 이미 있으면 제안하지 않음
-    final key = (ids.toList()..sort()).join(',');
-    if (albums.any((a) => (a.photoIds.toList()..sort()).join(',') == key)) {
-      return null;
-    }
-    return AlbumSuggestion(
-      title: _albumTitleFrom(searchHistory.first),
-      emoji: byId[ids.first]!.emoji,
-      photoIds: ids,
-    );
-  }
-
-  static String _albumTitleFrom(String query) {
-    final q = query.trim().replaceAll(RegExp(r'\s+'), ' ');
-    return q.length > 20 ? '${q.substring(0, 20)}…' : q;
-  }
-
-  void dismissAlbumSuggestion() {
-    _albumSuggestionDismissed = true;
+    albumBusy = true;
+    albumError = null;
     notifyListeners();
+    try {
+      final (title, ids) = await api.composeAlbum(visiblePhotos, q);
+      final byId = {for (final d in db) d.id: d};
+      final valid = ids.where(byId.containsKey).toList();
+      if (valid.isEmpty) {
+        albumError = '조건에 맞는 사진을 찾지 못했어요. 조금 다르게 설명해 보세요.';
+      } else {
+        albumDraft = AlbumSuggestion(
+          title: title.isEmpty ? q : title,
+          emoji: byId[valid.first]!.emoji,
+          photoIds: valid,
+        );
+        albumDraftSelected.clear();
+        screen = 17;
+        seamlessSwitch = false;
+      }
+    } on ApiException catch (e) {
+      albumError = e.userMessage;
+    } catch (e) {
+      albumError = '오류가 났어요 ($e)';
+    } finally {
+      albumBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void toggleDraftPhoto(int id) {
+    if (!albumDraftSelected.remove(id)) albumDraftSelected.add(id);
+    notifyListeners();
+  }
+
+  /// 미리보기에서 선택한(원하지 않는) 사진을 후보에서 뺀다.
+  void excludeSelectedDraftPhotos() {
+    final d = albumDraft;
+    if (d == null || albumDraftSelected.isEmpty) return;
+    albumDraft = AlbumSuggestion(
+      title: d.title,
+      emoji: d.emoji,
+      photoIds: d.photoIds.where((id) => !albumDraftSelected.contains(id)).toList(),
+    );
+    albumDraftSelected.clear();
+    notifyListeners();
+  }
+
+  /// 최종 확인 → 앨범 저장 후 앨범 상세로.
+  void confirmAlbumDraft(String title) {
+    final d = albumDraft;
+    if (d == null || d.photoIds.isEmpty) return;
+    createAlbumFromSuggestion(d, title);
+    albumDraft = null;
+    albumDraftSelected.clear();
+    openAlbum(lastCreatedAlbumId!);
   }
 
   void createAlbumFromSuggestion(AlbumSuggestion sug, String title) {

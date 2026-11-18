@@ -70,24 +70,46 @@ async function analyze(b) {
   return [200, await ask([{ type: 'input_text', text: ANALYZE }, { type: 'input_image', image_url: b.image }])];
 }
 
+// wantQuestion: 사용자가 '질문 한 번 더하기'를 눌렀을 때 — 질문 개수 제한 없이 반드시 하나 만들도록 요청
+const WANT_Q = '사용자가 추가 질문을 요청했다. 현재 상위 후보들을 가장 잘 구분하는 새 질문을 반드시 하나 만들어라(question을 null로 두지 마라).';
+
 async function search(b) {
   if (!Array.isArray(b.db) || !Array.isArray(b.hist) || b.db.length > 300) return [400, { error: 'bad_request' }];
   const db = b.db.map(({ thumb, e, ...d }) => d); // 썸네일은 모델에 보내지 않음
   const hist = b.hist.slice(-12);
+  const want = b.wantQuestion === true;
   const asked = askedQuestions(hist);
-  let result = await ask([{ type: 'input_text', text: searchPrompt(db, hist) }]);
-  if (asked.length >= 5) {
+  let result = await ask([{ type: 'input_text', text: searchPrompt(db, hist, want ? WANT_Q : '') }]);
+  if (!want && asked.length >= 5) {
     result.question = null;
   } else if (result.question && isDupQ(result.question, asked)) {
-    result = await ask([{ type: 'input_text', text: searchPrompt(db, hist, '방금 중복 질문을 냈다. 이미 물은 질문(' + asked.join(' | ') + ')을 제외하고 다른 질문을 내거나 null을 반환하라.') }]);
+    result = await ask([{ type: 'input_text', text: searchPrompt(db, hist, (want ? WANT_Q + ' ' : '') + '방금 중복 질문을 냈다. 이미 물은 질문(' + asked.join(' | ') + ')을 제외하고 다른 질문을 내' + (want ? '라.' : '거나 null을 반환하라.')) }]);
     if (result.question && isDupQ(result.question, asked)) result.question = null;
   }
   return [200, result];
 }
 
-const POST_ROUTES = { analyze, search };
+// AI 대화형 앨범: 자연어 요청에 맞는 사진을 DB에서 모두 고른다
+const albumPrompt = (db, request) =>
+  '너는 스마트 갤러리의 앨범 큐레이터다. 사용자의 앨범 요청에 맞는 사진을 DB에서 모두 골라라. ' +
+  '요청의 포함 조건과 제외 조건(예: "음식 사진은 빼고")을 모두 지켜라. 확실히 맞지 않는 사진은 넣지 마라.' +
+  '\nDB:' + JSON.stringify(db) + '\n요청:' + JSON.stringify(request) +
+  '\nJSON만 출력: {"title":"15자 이내 앨범 이름","ids":[고른 사진 id 숫자들]}';
 
-// route: 'health' | 'analyze' | 'search' (그 외는 404)
+async function album(b) {
+  const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
+  if (!request || !Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
+  const db = b.db.map(({ thumb, e, ...d }) => d);
+  const known = new Set(db.map(d => d.id));
+  const r = await ask([{ type: 'input_text', text: albumPrompt(db, request) }]);
+  const ids = [...new Set((Array.isArray(r.ids) ? r.ids : []).map(Number))].filter(id => known.has(id));
+  const title = String(r.title || '').trim().slice(0, 30) || request.slice(0, 15);
+  return [200, { title, ids }];
+}
+
+const POST_ROUTES = { analyze, search, album };
+
+// route: 'health' | 'analyze' | 'search' | 'album' (그 외는 404)
 export async function handleApi(req, res, route) {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');

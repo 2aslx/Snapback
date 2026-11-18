@@ -29,7 +29,9 @@ class _SnapbackAppState extends State<SnapbackApp> {
   void initState() {
     super.initState();
     // 웹 개발용: ?screen=N 으로 특정 화면부터 열기 (디자인 비교·QA)
-    final n = kIsWeb ? int.tryParse(Uri.base.queryParameters['screen'] ?? '') : null;
+    final n = kIsWeb
+        ? int.tryParse(Uri.base.queryParameters['screen'] ?? '')
+        : null;
     if (n != null) _state.go(n);
   }
 
@@ -98,6 +100,8 @@ class _SnapbackShell extends StatelessWidget {
         return Screen15Mode(state: state);
       case 16:
         return Screen16AlbumDetail(state: state);
+      case 17:
+        return Screen17AlbumPreview(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -131,10 +135,8 @@ class _SnapbackShell extends StatelessWidget {
                             : const Duration(milliseconds: 250),
                         switchInCurve: Curves.ease,
                         // 이전 화면은 바로 사라진다 (display:none)
-                        layoutBuilder: (current, previous) => Stack(
-                          fit: StackFit.expand,
-                          children: [?current],
-                        ),
+                        layoutBuilder: (current, previous) =>
+                            Stack(fit: StackFit.expand, children: [?current]),
                         transitionBuilder: (child, anim) => AnimatedBuilder(
                           animation: anim,
                           builder: (_, w) => Opacity(
@@ -153,7 +155,7 @@ class _SnapbackShell extends StatelessWidget {
                             14,
                             16,
                             showTabs
-                                ? (miniVisible ? 220 : 104) + bottomInset
+                                ? (miniVisible ? 180 : 104) + bottomInset
                                 : 36 + bottomInset,
                           ),
                           child: _buildScreen(),
@@ -190,7 +192,11 @@ class _BottomTabBar extends StatelessWidget {
   const _BottomTabBar({required this.state});
   final SnapbackState state;
 
-  static const _tabs = [(5, 'image', '사진'), (10, 'heart', '기억'), (11, 'stack', '앨범')];
+  static const _tabs = [
+    (5, 'image', '사진'),
+    (10, 'heart', '기억'),
+    (11, 'stack', '앨범'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -210,8 +216,9 @@ class _BottomTabBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: _tabs.map((t) {
-              final active = state.screen == t.$1 ||
-                  (t.$1 == 11 && state.screen == 16);
+              final active =
+                  state.screen == t.$1 ||
+                  (t.$1 == 11 && (state.screen == 16 || state.screen == 17));
               final col = active ? c.pri : c.tabMute;
               return Expanded(
                 child: GestureDetector(
@@ -221,13 +228,17 @@ class _BottomTabBar extends StatelessWidget {
                     children: [
                       SizedBox(
                         height: 28,
-                        child: Center(child: SnapIcon(t.$2, size: 28.75, color: col)),
+                        child: Center(
+                          child: SnapIcon(t.$2, size: 28.75, color: col),
+                        ),
                       ),
                       Text(
                         t.$3,
                         style: TextStyle(
                           fontSize: 10,
-                          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight: active
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                           color: col,
                         ),
                       ),
@@ -296,22 +307,31 @@ class _MiniHostState extends State<_MiniHost> {
       widget.builder(widget.state.analysisTotal > 0 && !_hidden);
 }
 
-/// #hb — 탭바 위 떠 있는 분석 진행 카드 (주황 그라데이션, 미니 러너, 일시정지 버튼)
+/// #hb — 탭바 위 하단 분석 진행 바 (작업을 가리지 않도록 한 줄 + 트랙)
 class _MiniProgressCard extends StatelessWidget {
   const _MiniProgressCard({required this.state});
   final SnapbackState state;
+
+  static String _n(int v) => v.toString().replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
 
   @override
   Widget build(BuildContext context) {
     final s = state;
     final v = AnalysisView(s);
-    final status = v.done ? '분석 완료!' : (v.paused ? '일시정지됨' : '사진 분석 중');
+    final status = v.done ? '분석 완료' : (v.paused ? '일시정지됨' : '사진 분석 중');
+    const white = TextStyle(
+      color: Colors.white,
+      fontFeatures: [FontFeature.tabularFigures()],
+    );
     return GestureDetector(
-      onTap: () => s.go(4),
+      onTap: () => s.go(4), // 자세히 보기 (선택)
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 12, 10),
+        padding: const EdgeInsets.fromLTRB(14, 8, 8, 4),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(18),
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -331,50 +351,22 @@ class _MiniProgressCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      if (!v.done) ...[
-                        Container(
-                          width: 22,
-                          height: 22,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: SnapIcon(
-                            v.paused ? 'pause' : 'sparkle',
-                            size: 12.65,
-                            color: const Color(0xFFE8793A),
-                          ),
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: status,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
-                        const SizedBox(width: 8),
+                        TextSpan(text: ' · ${_n(v.dn)} / ${_n(v.tot)}장'),
                       ],
-                      Text(
-                        status,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.3,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${v.pct}%',
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
+                    ),
+                    style: white.copyWith(fontSize: 14),
                   ),
-                  // .mtrk — 40 높이 트랙 + 36 미니 러너
+                  // .mtrk — 트랙 + 미니 러너
                   LayoutBuilder(
                     builder: (_, k) => SizedBox(
-                      height: 40,
+                      height: 30,
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
@@ -384,41 +376,40 @@ class _MiniProgressCard extends StatelessWidget {
                             bottom: 4,
                             child: SnapBar(
                               value: v.p,
+                              height: 4,
                               background: const Color(0x59FFFFFF),
                               color: Colors.white,
                             ),
                           ),
                           AnimatedPositioned(
                             duration: const Duration(milliseconds: 600),
-                            left: (k.maxWidth - 36) * v.p,
-                            bottom: 6,
-                            child: SnapRunner(width: 36, mode: v.mode, shadowed: true),
+                            left: (k.maxWidth - 26) * v.p,
+                            bottom: 5,
+                            child: SnapRunner(
+                              width: 26,
+                              mode: v.mode,
+                              shadowed: true,
+                            ),
                           ),
                         ],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1),
-                    child: Text(
-                      '${v.dn} / ${v.tot}장',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xE0FFFFFF),
-                        fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-            if (!v.done) ...[
-              const SizedBox(width: 12),
+            const SizedBox(width: 10),
+            Text(
+              '${v.pct}%',
+              style: white.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 8),
+            if (!v.done)
               Pressable(
                 onTap: s.togglePauseAnalysis,
                 child: Container(
-                  width: 56,
-                  height: 56,
+                  width: 36,
+                  height: 36,
                   decoration: const BoxDecoration(
                     color: Color(0xFF7A3A14),
                     shape: BoxShape.circle,
@@ -426,12 +417,13 @@ class _MiniProgressCard extends StatelessWidget {
                   alignment: Alignment.center,
                   child: SnapIcon(
                     v.paused ? 'play' : 'pause',
-                    size: 27.6,
+                    size: 18,
                     color: Colors.white,
                   ),
                 ),
-              ),
-            ],
+              )
+            else
+              const SizedBox(width: 4),
           ],
         ),
       ),
