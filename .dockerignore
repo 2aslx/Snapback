@@ -1,8 +1,0 @@
-.env
-.env.*
-.git
-node_modules
-**/.DS_Store
-flutter_app/build
-flutter_app/.dart_tool
-flutter_app/ios
