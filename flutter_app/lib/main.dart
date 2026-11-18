@@ -1,8 +1,15 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
+
 import 'screens/main_screens.dart';
 import 'screens/onboarding_screens.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
+import 'widgets/common_widgets.dart';
+import 'widgets/snap_runner.dart';
 
 void main() {
   runApp(const SnapbackApp());
@@ -17,6 +24,14 @@ class SnapbackApp extends StatefulWidget {
 
 class _SnapbackAppState extends State<SnapbackApp> {
   final SnapbackState _state = SnapbackState();
+
+  @override
+  void initState() {
+    super.initState();
+    // 웹 개발용: ?screen=N 으로 특정 화면부터 열기 (디자인 비교·QA)
+    final n = kIsWeb ? int.tryParse(Uri.base.queryParameters['screen'] ?? '') : null;
+    if (n != null) _state.go(n);
+  }
 
   @override
   void dispose() {
@@ -44,6 +59,7 @@ class _SnapbackShell extends StatelessWidget {
   const _SnapbackShell({required this.state});
   final SnapbackState state;
 
+  // .scr.tb — 하단 탭바가 보이는 화면
   static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16};
 
   Widget _buildScreen() {
@@ -91,70 +107,76 @@ class _SnapbackShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.sc;
     final showTabs = _tabScreens.contains(state.screen);
+    final reduce = MediaQuery.of(context).disableAnimations;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: c.bg,
       body: Center(
-        child: Container(
-          width: double.infinity,
+        child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 430),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              stops: const [0.0, 0.28],
-              colors: [c.soft, c.card],
-            ),
-            boxShadow: const [
-              BoxShadow(color: Color(0x1F4B30B7), blurRadius: 40),
-            ],
-          ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                Expanded(
-                  // 화면 전환: 새 화면이 살짝 위로 떠오르며 페이드 인 (프로토타입 .25s 효과)
-                  child: AnimatedSwitcher(
-                    duration: MediaQuery.of(context).disableAnimations ||
-                            state.seamlessSwitch
-                        ? Duration.zero
-                        : const Duration(milliseconds: 280),
-                    reverseDuration: const Duration(milliseconds: 160),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeIn,
-                    layoutBuilder: (current, previous) => Stack(
-                      fit: StackFit.expand,
-                      // 이어지는 전환이면 이전 화면을 겹쳐 그리지 않음
-                      children: [
-                        if (!state.seamlessSwitch) ...previous,
-                        ?current,
-                      ],
-                    ),
-                    transitionBuilder: (child, anim) => FadeTransition(
-                      opacity: anim,
-                      child: SlideTransition(
-                        position: Tween(
-                          begin: const Offset(0, 0.012),
-                          end: Offset.zero,
-                        ).animate(anim),
-                        child: child,
+          child: ColoredBox(
+            color: c.bg,
+            child: _MiniHost(
+              state: state,
+              builder: (miniVisible) => Stack(
+                children: [
+                  // 화면 전환: .scr.on { animation: in .25s } — 투명→불투명 + 8px 위로
+                  Positioned.fill(
+                    child: SafeArea(
+                      bottom: false,
+                      child: AnimatedSwitcher(
+                        duration: reduce || state.seamlessSwitch
+                            ? Duration.zero
+                            : const Duration(milliseconds: 250),
+                        switchInCurve: Curves.ease,
+                        // 이전 화면은 바로 사라진다 (display:none)
+                        layoutBuilder: (current, previous) => Stack(
+                          fit: StackFit.expand,
+                          children: [?current],
+                        ),
+                        transitionBuilder: (child, anim) => AnimatedBuilder(
+                          animation: anim,
+                          builder: (_, w) => Opacity(
+                            opacity: anim.value,
+                            child: Transform.translate(
+                              offset: Offset(0, 8 * (1 - anim.value)),
+                              child: w,
+                            ),
+                          ),
+                          child: child,
+                        ),
+                        child: SingleChildScrollView(
+                          key: ValueKey(state.screen),
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            14,
+                            16,
+                            showTabs
+                                ? (miniVisible ? 220 : 104) + bottomInset
+                                : 36 + bottomInset,
+                          ),
+                          child: _buildScreen(),
+                        ),
                       ),
-                    ),
-                    // 화면마다 스크롤 뷰를 새로 만들어 항상 맨 위에서 시작
-                    child: SingleChildScrollView(
-                      key: ValueKey(state.screen),
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        16,
-                        16,
-                        showTabs ? 20 : 24,
-                      ),
-                      child: _buildScreen(),
                     ),
                   ),
-                ),
-                if (showTabs) _BottomTabBar(state: state),
-              ],
+                  if (showTabs)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _BottomTabBar(state: state),
+                    ),
+                  if (showTabs && miniVisible)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 92 + bottomInset,
+                      child: _MiniProgressCard(state: state),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -163,51 +185,255 @@ class _SnapbackShell extends StatelessWidget {
   }
 }
 
+/// .tabs — 반투명 블러 바 (84), 아이콘 25 / 라벨 10
 class _BottomTabBar extends StatelessWidget {
   const _BottomTabBar({required this.state});
   final SnapbackState state;
 
-  static const _tabs = [
-    (5, '🖼️', '사진'),
-    (10, '💜', '기억'),
-    (11, '🗂️', '앨범'),
-  ];
+  static const _tabs = [(5, 'image', '사진'), (10, 'heart', '기억'), (11, 'stack', '앨범')];
 
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
-    return Container(
-      height: 66,
-      decoration: BoxDecoration(
-        color: c.card,
-        border: Border(top: BorderSide(color: c.line)),
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          height: 84 + (bottomInset > 34 ? bottomInset - 34 : 0),
+          padding: const EdgeInsets.only(top: 7),
+          decoration: BoxDecoration(
+            color: c.bar,
+            border: Border(top: BorderSide(color: c.line, width: 0.5)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: _tabs.map((t) {
+              final active = state.screen == t.$1 ||
+                  (t.$1 == 11 && state.screen == 16);
+              final col = active ? c.pri : c.tabMute;
+              return Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => state.go(t.$1),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 28,
+                        child: Center(child: SnapIcon(t.$2, size: 28.75, color: col)),
+                      ),
+                      Text(
+                        t.$3,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                          color: col,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       ),
-      child: Row(
-        children: _tabs.map((t) {
-          final active =
-              state.screen == t.$1 || (t.$1 == 11 && state.screen == 16);
-          return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => state.go(t.$1),
+    );
+  }
+}
+
+/// 미니 진행 카드 표시 여부: 분석이 있으면 보이고, 완료 후 5초 뒤 숨김.
+class _MiniHost extends StatefulWidget {
+  const _MiniHost({required this.state, required this.builder});
+  final SnapbackState state;
+  final Widget Function(bool miniVisible) builder;
+
+  @override
+  State<_MiniHost> createState() => _MiniHostState();
+}
+
+class _MiniHostState extends State<_MiniHost> {
+  Timer? _hide;
+  bool _hidden = false;
+  bool _wasDone = false;
+
+  @override
+  void didUpdateWidget(covariant _MiniHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  void _sync() {
+    final s = widget.state;
+    final done = s.analysisFinished && s.analysisTotal > 0;
+    if (done && !_wasDone) {
+      _hide?.cancel();
+      _hide = Timer(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _hidden = true);
+      });
+    } else if (!done && _wasDone) {
+      _hide?.cancel();
+      _hidden = false;
+    }
+    _wasDone = done;
+  }
+
+  @override
+  void dispose() {
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(widget.state.analysisTotal > 0 && !_hidden);
+}
+
+/// #hb — 탭바 위 떠 있는 분석 진행 카드 (주황 그라데이션, 미니 러너, 일시정지 버튼)
+class _MiniProgressCard extends StatelessWidget {
+  const _MiniProgressCard({required this.state});
+  final SnapbackState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final v = AnalysisView(s);
+    final status = v.done ? '분석 완료!' : (v.paused ? '일시정지됨' : '사진 분석 중');
+    return GestureDetector(
+      onTap: () => s.go(4),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFF4A45A), Color(0xFFE8793A)],
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x52AA460F),
+              blurRadius: 30,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(t.$2, style: const TextStyle(fontSize: 19)),
-                  const SizedBox(height: 2),
-                  Text(
-                    t.$3,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: active ? c.pri : c.mute,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                  Row(
+                    children: [
+                      if (!v.done) ...[
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: SnapIcon(
+                            v.paused ? 'pause' : 'sparkle',
+                            size: 12.65,
+                            color: const Color(0xFFE8793A),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Text(
+                        status,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.3,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${v.pct}%',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                  // .mtrk — 40 높이 트랙 + 36 미니 러너
+                  LayoutBuilder(
+                    builder: (_, k) => SizedBox(
+                      height: 40,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 4,
+                            child: SnapBar(
+                              value: v.p,
+                              background: const Color(0x59FFFFFF),
+                              color: Colors.white,
+                            ),
+                          ),
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 600),
+                            left: (k.maxWidth - 36) * v.p,
+                            bottom: 6,
+                            child: SnapRunner(width: 36, mode: v.mode, shadowed: true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      '${v.dn} / ${v.tot}장',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xE0FFFFFF),
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          );
-        }).toList(),
+            if (!v.done) ...[
+              const SizedBox(width: 12),
+              Pressable(
+                onTap: s.togglePauseAnalysis,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF7A3A14),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: SnapIcon(
+                    v.paused ? 'play' : 'pause',
+                    size: 27.6,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

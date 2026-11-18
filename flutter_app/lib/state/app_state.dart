@@ -194,6 +194,9 @@ class SnapbackState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 화면에서 공개 필드(선택값 등)를 직접 바꾼 뒤 다시 그리기.
+  void touch() => notifyListeners();
+
   void go(int idx) {
     seamlessSwitch = false;
     screen = idx;

@@ -1,51 +1,48 @@
 import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
+
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/snap_runner.dart';
 
+// index.html 의 ① 시작 안내 ~ ② 분석 진행 (섹션 0~4)
+
+/// ① 시작 안내
 class Screen0Welcome extends StatelessWidget {
   const Screen0Welcome({super.key, required this.state});
   final SnapbackState state;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.sc;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 24),
-        const Text('🌀', style: TextStyle(fontSize: 48)),
-        const SizedBox(height: 8),
-        Text(
-          'Snapback',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: c.ink,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
+        const SnapCharacter(size: 84),
+        const SnapH2('Snapback'),
+        const SnapSub(
           '스냅사진 + 되돌아가다. 흐릿한 기억을 말하면 사진을 찾아 주고, 그날의 경험까지 다시 꺼내 주는 스마트 갤러리',
-          style: TextStyle(fontSize: 13, height: 1.5, color: c.mute),
         ),
-        const SizedBox(height: 8),
-        SnapRowCard(
-          leading: buildIconBox(context, '💬'),
-          title: '기억나는 대로 말하면 돼요',
-          subtitle: '“비 오는 날 창가에서 먹은 디저트”',
-        ),
-        SnapRowCard(
-          leading: buildIconBox(context, '⏱️'),
-          title: '처음엔 분석 시간이 필요해요',
-          subtitle: '사진 3,000장 기준 약 10분 · 화면을 꺼도 계속돼요',
-        ),
-        SnapRowCard(
-          leading: buildIconBox(context, '🔐'),
-          title: '내가 허용한 사진만 분석해요',
-          subtitle: '범위는 언제든 바꿀 수 있어요',
+        const SnapGroup(
+          children: [
+            SnapRow(
+              leading: IconBadge('chat'),
+              title: '기억나는 대로 말하면 돼요',
+              subtitle: '“비 오는 날 창가에서 먹은 디저트”',
+            ),
+            SnapRow(
+              leading: IconBadge('clock'),
+              title: '처음엔 분석 시간이 필요해요',
+              subtitle: '사진 3,000장 기준 약 10분 · 화면을 꺼도 계속돼요',
+            ),
+            SnapRow(
+              leading: IconBadge('lock'),
+              title: '내가 허용한 사진만 분석해요',
+              subtitle: '범위는 언제든 바꿀 수 있어요',
+            ),
+          ],
         ),
         SnapButton(label: '시작하기', onTap: () => state.go(1)),
       ],
@@ -53,192 +50,132 @@ class Screen0Welcome extends StatelessWidget {
   }
 }
 
+/// ② 사진 범위 선택
 class Screen1Scope extends StatelessWidget {
   const Screen1Scope({super.key, required this.state});
   final SnapbackState state;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.sc;
+    final s = state;
+    SnapRow opt(int i, String icon, String title, String sub, [int? go]) =>
+        SnapRow(
+          leading: IconBadge(icon),
+          title: title,
+          subtitle: sub,
+          checked: s.scopeSelection == i,
+          onTap: () {
+            s.scopeSelection = i;
+            go != null ? s.go(go) : s.touch();
+          },
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: '사진 접근 범위', onBack: () => state.go(0)),
-        const SizedBox(height: 12),
-        Text(
-          '어떤 사진을\n허용할까요?',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            height: 1.3,
-            color: c.ink,
-          ),
+        SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(0)),
+        const SnapH2('어떤 사진을\n허용할까요?'),
+        SnapGroup(
+          children: [
+            opt(0, 'image', '전체 사진', '3,420장'),
+            opt(1, 'folder', '앨범 선택', '원하는 앨범만'),
+            opt(2, 'select', '사진 직접 고르기', '눌러서 하나씩 선택', 2),
+            opt(3, 'calendar', '기간 지정', '2022.01 ~ 지금'),
+          ],
         ),
-        const SizedBox(height: 6),
-        SnapOptionCard(
-          icon: '🖼️',
-          title: '전체 사진',
-          subtitle: '3,420장',
-          selected: state.scopeSelection == 0,
-          onTap: () {
-            state.scopeSelection = 0;
-            state.go(1);
-          },
-        ),
-        SnapOptionCard(
-          icon: '📁',
-          title: '앨범 선택',
-          subtitle: '원하는 앨범만',
-          selected: state.scopeSelection == 1,
-          onTap: () {
-            state.scopeSelection = 1;
-            state.go(1);
-          },
-        ),
-        SnapOptionCard(
-          icon: '✋',
-          title: '사진 직접 고르기',
-          subtitle: '눌러서 하나씩 선택',
-          selected: state.scopeSelection == 2,
-          onTap: () {
-            state.scopeSelection = 2;
-            state.go(2);
-          },
-        ),
-        SnapOptionCard(
-          icon: '📅',
-          title: '기간 지정',
-          subtitle: '2022.01 ~ 지금',
-          selected: state.scopeSelection == 3,
-          onTap: () {
-            state.scopeSelection = 3;
-            state.go(1);
-          },
-        ),
-        SnapButton(label: '다음', onTap: () => state.go(3)),
+        SnapButton(label: '다음', onTap: () => s.go(3)),
       ],
     );
   }
 }
 
+/// ②′ 사진 직접 고르기
 class Screen2PickPhotos extends StatelessWidget {
   const Screen2PickPhotos({super.key, required this.state});
   final SnapbackState state;
 
   @override
   Widget build(BuildContext context) {
+    final s = state;
     final c = context.sc;
-    final count = state.pickQueue.length;
+    final n = s.pickQueue.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SnapbackTopBar(
           title: '사진 선택',
-          onBack: () => state.go(1),
-          trailing: Text(
-            '$count장',
-            style: TextStyle(fontSize: 12, color: c.pri),
-          ),
+          onBack: () => s.go(1),
+          trailing: Text('$n장', style: TextStyle(fontSize: 12, color: c.pk)),
         ),
-        const SizedBox(height: 6),
         SnapButton(
-          label: '📷 분석할 사진 선택',
+          label: '분석할 사진 선택',
+          icon: 'camera',
           ghost: true,
-          onTap: () => state.pickPhotosFromGallery(),
+          top: 14,
+          onTap: () => s.pickPhotosFromGallery(),
         ),
-        const SizedBox(height: 10),
-        Center(
-          child: Text(
-            '선택한 사진: $count장 (이미 분석한 사진은 건너뛰어요)',
-            style: TextStyle(fontSize: 11, color: c.mute),
-          ),
+        SnapNote(
+          n == 0 ? '선택한 사진: 0장' : '선택한 사진: $n장 (이미 분석한 사진은 건너뛰어요)',
         ),
-        SnapButton(label: '다음', onTap: () => state.go(3)),
+        SnapButton(label: '다음', onTap: () => s.go(3)),
       ],
     );
   }
 }
 
+/// ② 분석 순서
 class Screen3Order extends StatelessWidget {
   const Screen3Order({super.key, required this.state});
   final SnapbackState state;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.sc;
-    const years = ['2026', '2025', '2024', '2023', '2022'];
+    final s = state;
+    SnapRow opt(int i, String icon, String title, String sub) => SnapRow(
+          leading: IconBadge(icon),
+          title: title,
+          subtitle: sub,
+          checked: s.orderSelection == i,
+          onTap: () {
+            s.orderSelection = i;
+            s.touch();
+          },
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: '분석 순서', onBack: () => state.go(1)),
-        const SizedBox(height: 12),
-        Text(
-          '어디부터\n돌아볼까요?',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            height: 1.3,
-            color: c.ink,
-          ),
+        SnapbackTopBar(title: '분석 순서', onBack: () => s.go(1)),
+        const SnapH2('어디부터\n돌아볼까요?'),
+        const SnapSub('먼저 분석된 사진부터 바로 검색할 수 있어요.'),
+        SnapGroup(
+          children: [
+            opt(0, 'sprout', '최근 사진부터', '요즘 찍은 사진을 먼저'),
+            opt(1, 'history', '오래된 사진부터', '2022년부터 차근차근'),
+            opt(2, 'target', '지정 기간 우선', '고른 기간을 먼저 분석'),
+          ],
         ),
-        const SizedBox(height: 6),
-        Text(
-          '먼저 분석된 사진부터 바로 검색할 수 있어요.',
-          style: TextStyle(fontSize: 13, color: c.mute),
-        ),
-        const SizedBox(height: 6),
-        SnapOptionCard(
-          icon: '🌱',
-          title: '최근 사진부터',
-          subtitle: '요즘 찍은 사진을 먼저',
-          selected: state.orderSelection == 0,
-          onTap: () {
-            state.orderSelection = 0;
-            state.go(3);
-          },
-        ),
-        SnapOptionCard(
-          icon: '🕰️',
-          title: '오래된 사진부터',
-          subtitle: '2022년부터 차근차근',
-          selected: state.orderSelection == 1,
-          onTap: () {
-            state.orderSelection = 1;
-            state.go(3);
-          },
-        ),
-        SnapOptionCard(
-          icon: '🎯',
-          title: '지정 기간 우선',
-          subtitle: '고른 기간을 먼저 분석',
-          selected: state.orderSelection == 2,
-          onTap: () {
-            state.orderSelection = 2;
-            state.go(3);
-          },
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: years
-              .map(
-                (y) => SnapChip(
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final y in const ['2026', '2025', '2024', '2023', '2022'])
+                SnapChip(
                   label: y,
-                  selected: state.priorityYear == y,
+                  selected: s.priorityYear == y,
                   onTap: () {
-                    state.priorityYear = y;
-                    state.go(3);
+                    s.priorityYear = y;
+                    s.touch();
                   },
                 ),
-              )
-              .toList(),
+            ],
+          ),
         ),
         SnapButton(
           label: '분석 시작',
           onTap: () {
-            state.go(4);
-            state.startAnalysis();
+            s.go(4);
+            s.startAnalysis();
           },
         ),
       ],
@@ -246,323 +183,202 @@ class Screen3Order extends StatelessWidget {
   }
 }
 
-class Screen4Progress extends StatefulWidget {
+/// 분석 진행 공통 계산 (진행 화면 · 미니 카드가 함께 사용)
+class AnalysisView {
+  AnalysisView(SnapbackState s)
+      : tot = s.analysisTotal,
+        dn = s.analysisDone,
+        paused = s.analysisPaused,
+        done = s.analysisFinished && s.analysisTotal > 0;
+
+  final int tot;
+  final int dn;
+  final bool paused;
+  final bool done;
+
+  int get pct => tot > 0 ? (dn / tot * 100).round().clamp(0, 100) : 0;
+  double get p => pct / 100;
+  RunnerMode get mode => done
+      ? RunnerMode.done
+      : (paused || tot == 0 ? RunnerMode.idle : RunnerMode.run);
+}
+
+/// ② 분석 진행
+class Screen4Progress extends StatelessWidget {
   const Screen4Progress({super.key, required this.state});
   final SnapbackState state;
 
-  @override
-  State<Screen4Progress> createState() => _Screen4ProgressState();
-}
-
-class _Screen4ProgressState extends State<Screen4Progress> {
-
-  String _formatEta(SnapbackState s) {
-    if (s.analysisTotal == 0) return '-';
-    if (s.analysisFinished) return '완료';
-    if (s.etaMs <= 0) return '계산 중';
-    final sec = math.max(1, (s.etaMs / 1000).round());
-    return sec < 60 ? '~$sec초' : '~${(sec / 60).round()}분';
+  String _eta(SnapbackState s, AnalysisView v) {
+    if (v.done) return '완료';
+    if (v.tot == 0 || s.etaMs <= 0) return '-';
+    return '~${math.max(1, (s.etaMs / 60000).round())}분';
   }
 
-  String _statusSubtitle(SnapbackState s) {
-    if (s.analysisTotal == 0) return '분석할 사진을 선택해 주세요';
-    if (s.analysisFinished) return '모든 사진을 기억했어요 ✨';
-    if (s.currentFileDate != null) {
-      final d = s.currentFileDate!;
-      return '${d.year}년 ${d.month}월 사진 분석 중…';
-    }
+  String _year(SnapbackState s, AnalysisView v) {
+    if (v.tot == 0) return '먼저 사진을 선택해 주세요';
+    if (v.done) return '모든 사진을 기억했어요';
+    final d = s.currentFileDate;
+    if (d != null) return '${d.year}년 ${d.month}월을 돌아보는 중';
     return '시작합니다';
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = widget.state;
+    final s = state;
     final c = context.sc;
-    final tot = s.analysisTotal;
-    final dn = s.analysisDone;
-    final pct = tot > 0 ? ((dn / tot) * 100).round().clamp(0, 100) : 0;
-    final progress = pct / 100.0;
-    final paused = s.analysisPaused;
-    final statusLabel = tot == 0
+    final v = AnalysisView(s);
+    final status = v.tot == 0
         ? '대기 중'
-        : (paused ? '일시정지' : (s.analysisFinished ? '완료!' : '분석 중'));
-    final yearMap = s.yearProgress();
-    final sortedYears = yearMap.keys.toList()..sort((a, b) => b.compareTo(a));
+        : v.done
+            ? '완료!'
+            : (v.paused ? '일시정지' : '분석 중');
+    final years = s.yearProgress();
+    final keys = years.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SnapbackTopBar(title: '분석 진행', onBack: () => s.go(5)),
-        const SizedBox(height: 12),
+        // .ring — 160, conic(pri p%, line), 안쪽 134 원(bg)
         Center(
-          child: SizedBox(
-            width: 160,
-            height: 160,
-            child: CustomPaint(
-              painter: _RingPainter(
-                progress: progress,
-                color: c.pri,
-                trackColor: c.line,
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$pct%',
-                      style: TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w700,
-                        color: c.ink,
-                      ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: SizedBox(
+              width: 160,
+              height: 160,
+              child: CustomPaint(
+                painter: _RingPainter(v.p, c.pri, c.line),
+                child: Center(
+                  child: Container(
+                    width: 134,
+                    height: 134,
+                    decoration:
+                        BoxDecoration(color: c.bg, shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${v.pct}%',
+                          style: TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w700,
+                            color: c.ink,
+                            height: 1.2,
+                          ),
+                        ),
+                        Text(
+                          status,
+                          style: TextStyle(fontSize: 12, color: c.mute),
+                        ),
+                      ],
                     ),
-                    Text(
-                      statusLabel,
-                      style: TextStyle(fontSize: 12, color: c.mute),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        // .trk — 92 높이, margin 4 8 0, 선 bottom 8 h7, 깃발, 달리는 캐릭터
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
           child: LayoutBuilder(
-            builder: (context, constraints) {
-              // 프로토타입과 동일: 캐릭터 앞부분이 진행 지점에 오도록 left - 48
-              final w = constraints.maxWidth;
-              return SizedBox(
-                height: 92,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 8,
+            builder: (_, k) => SizedBox(
+              height: 92,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 8,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(9),
                       child: Container(
                         height: 7,
-                        decoration: BoxDecoration(
-                          color: c.line,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: progress,
+                        color: c.line,
+                        alignment: Alignment.centerLeft,
+                        child: AnimatedFractionallySizedBox(
+                          duration: const Duration(milliseconds: 600),
+                          widthFactor: v.p,
                           child: Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(9),
                               gradient: LinearGradient(
-                                colors: [const Color(0xFFA58BFF), c.pri],
+                                colors: [const Color(0xFFF4A574), c.pri],
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                    const Positioned(
-                      right: -6,
-                      bottom: 12,
-                      child: Text('🏁', style: TextStyle(fontSize: 20)),
-                    ),
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 600),
-                      left: w * progress - 48,
-                      bottom: 9,
-                      child: SnapRunner(
-                        running: s.analysisRunning && !paused,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        Center(
-          child: Text(
-            _statusSubtitle(s),
-            style: TextStyle(fontSize: 13, color: c.mute),
-          ),
-        ),
-        SnapButton(
-          label: '📷 사진 올려서 바로 분석하기',
-          onTap: () => s.pickPhotosFromGallery(startImmediately: true),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: c.card,
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: c.line),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$dn',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: c.ink,
-                      ),
-                    ),
-                    Text(
-                      '완료 / $tot',
-                      style: TextStyle(fontSize: 11, color: c.mute),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: c.card,
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: c.line),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _formatEta(s),
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: c.ink,
-                      ),
-                    ),
-                    Text(
-                      '남은 시간',
-                      style: TextStyle(fontSize: 11, color: c.mute),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (s.analysisLogs.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          ...s.analysisLogs.take(6).map((log) {
-            if (log.isError) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  log.text,
-                  style: const TextStyle(fontSize: 11, color: Color(0xFFC0392B)),
-                ),
-              );
-            }
-            final bytes = decodeDataUrl(log.thumbDataUrl);
-            return SnapRowCard(
-              leading: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: c.soft,
-                  borderRadius: BorderRadius.circular(11),
-                  image: bytes != null
-                      ? DecorationImage(
-                          image: MemoryImage(bytes),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
-                ),
-                alignment: Alignment.center,
-                child: bytes == null
-                    ? const Text('🧠', style: TextStyle(fontSize: 18))
-                    : null,
-              ),
-              title: log.text,
-              subtitle: log.subtext,
-            );
-          }),
-        ],
-        const SizedBox(height: 16),
-        Text(
-          '시기별 진행',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: c.ink,
-          ),
-        ),
-        const SizedBox(height: 6),
-        if (sortedYears.isEmpty)
-          Text(
-            '사진을 올리면 연도별 진행률이 표시돼요',
-            style: TextStyle(fontSize: 11, color: c.mute),
-          )
-        else
-          ...sortedYears.map((y) {
-            final pair = yearMap[y]!;
-            final ratio = pair[1] > 0 ? pair[0] / pair[1] : 0.0;
-            return Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(y, style: TextStyle(fontSize: 12, color: c.ink)),
-                      Text(
-                        '${pair[0]}/${pair[1]}',
-                        style: TextStyle(fontSize: 12, color: c.mute),
-                      ),
-                    ],
                   ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(9),
-                    child: LinearProgressIndicator(
-                      value: ratio,
-                      minHeight: 6,
-                      backgroundColor: c.line,
-                      valueColor: AlwaysStoppedAnimation(c.pri),
-                    ),
+                  Positioned(
+                    right: -6,
+                    bottom: 12,
+                    child: SnapIcon('flag', size: 23, color: c.ink),
+                  ),
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 600),
+                    left: (k.maxWidth - 66) * v.p,
+                    bottom: 12,
+                    child: SnapRunner(mode: v.mode),
                   ),
                 ],
               ),
-            );
-          }),
-        const SizedBox(height: 16),
-        Text(
-          '잠금화면에서도 보여요',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: c.ink,
+            ),
           ),
         ),
-        const SizedBox(height: 7),
+        SnapSub(_year(s, v), center: true),
+        StatBoxes(
+          items: [
+            ('${v.dn}', ' 완료 / ${v.tot}'),
+            (_eta(s, v), '남은 시간'),
+          ],
+        ),
+        const SnapH3('시기별 진행'),
+        if (keys.isEmpty)
+          const SnapNote('아직 선택한 사진이 없어요', top: 0)
+        else
+          for (final y in keys) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 2),
+              child: Row(
+                children: [
+                  Text(y, style: TextStyle(fontSize: 12, color: c.ink)),
+                  const Spacer(),
+                  Text(
+                    '${years[y]![0]}/${years[y]![1]}',
+                    style: TextStyle(fontSize: 12, color: c.mute),
+                  ),
+                ],
+              ),
+            ),
+            SnapBar(
+              value: years[y]![1] == 0 ? 0 : years[y]![0] / years[y]![1],
+            ),
+          ],
+        const SnapH3('잠금화면에서도 보여요'),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
             gradient: const LinearGradient(
-              colors: [Color(0xFF232766), Color(0xFF6A4CC4)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF6B3418), Color(0xFFE0753A)],
             ),
           ),
           child: Row(
             children: [
-              const SnapRunner(width: 46, running: false, effects: false),
+              const SnapCharacter(size: 46),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$pct%',
+                      '${v.pct}%',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -570,20 +386,14 @@ class _Screen4ProgressState extends State<Screen4Progress> {
                       ),
                     ),
                     const Text(
-                      'Analyzing your photos…',
-                      style: TextStyle(fontSize: 11, color: Colors.white70),
+                      '사진을 분석하고 있어요…',
+                      style: TextStyle(fontSize: 11, color: Color(0xCCFFFFFF)),
                     ),
                     const SizedBox(height: 5),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(9),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Colors.white24,
-                        valueColor: const AlwaysStoppedAnimation(
-                          Color(0xFFC9B8FF),
-                        ),
-                      ),
+                    SnapBar(
+                      value: v.p,
+                      background: const Color(0x33FFFFFF),
+                      color: const Color(0xFFFFD2B0),
                     ),
                   ],
                 ),
@@ -592,60 +402,39 @@ class _Screen4ProgressState extends State<Screen4Progress> {
           ),
         ),
         SnapButton(
-          label: paused ? '▶ 이어서 분석' : '⏸ 일시정지',
+          label: v.paused ? '이어서 분석' : '일시정지',
           ghost: true,
           onTap: s.togglePauseAnalysis,
         ),
         SnapButton(label: '분석된 사진 먼저 보기', onTap: () => s.go(5)),
-        const SizedBox(height: 9),
-        Center(
-          child: Text(
-            '중단돼도 완료한 지점부터 이어서 분석해요 · 잠금화면에서 진행률 확인',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11, color: c.mute),
-          ),
-        ),
+        const SnapNote('중단돼도 완료한 지점부터 이어서 분석해요 · 잠금화면에서 진행률 확인'),
       ],
     );
   }
 }
 
 class _RingPainter extends CustomPainter {
-  _RingPainter({
-    required this.progress,
-    required this.color,
-    required this.trackColor,
-  });
-
-  final double progress;
+  _RingPainter(this.p, this.color, this.track);
+  final double p;
   final Color color;
-  final Color trackColor;
+  final Color track;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 7;
-    final bgPaint = Paint()
-      ..color = trackColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 13;
-    final fgPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 13
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawCircle(center, radius, bgPaint);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      2 * math.pi * progress,
-      false,
-      fgPaint,
-    );
+    final r = Offset.zero & size;
+    canvas.drawOval(r, Paint()..color = track);
+    if (p > 0) {
+      canvas.drawArc(
+        r,
+        -math.pi / 2,
+        2 * math.pi * p,
+        true,
+        Paint()..color = color,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant _RingPainter old) =>
-      old.progress != progress || old.color != color;
+      old.p != p || old.color != color || old.track != track;
 }

@@ -28,6 +28,22 @@ class PhotoItem {
   final String time;
   final String caption;
   final String emoji;
+
+  /// 디자인(index.html)의 라인 아이콘 이름. 데모 사진은 emoji 에 대응, 업로드 사진은 'image'.
+  String get icon => const {
+        '🍰': 'cake',
+        '🥐': 'bread',
+        '🍓': 'bowl',
+        '🍵': 'cup',
+        '🌸': 'flower',
+        '🍝': 'bowl',
+        '🎄': 'tree',
+        '🌅': 'sunset',
+        '🧱': 'building',
+        '☕': 'cup',
+        '🛍️': 'bag',
+      }[emoji] ??
+      'image';
   final List<double>? gps;
   final bool exif;
   final String? thumbDataUrl;
