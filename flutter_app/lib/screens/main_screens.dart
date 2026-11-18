@@ -4,6 +4,7 @@ import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/photo_image.dart';
 
 // index.html(2aslx-patch-1) 의 섹션 5~15 + Flutter 추가 화면(16 앨범 상세).
 
@@ -1232,7 +1233,7 @@ class _Screen13SearchState extends State<Screen13Search>
                       gradIndex: x.id,
                       size: 58,
                       radius: 10,
-                      image: decodeDataUrl(byId[x.id]!.thumbDataUrl),
+                      image: photoImageProvider(byId[x.id]!, logicalSize: 58),
                     ),
                     title: byId[x.id]!.place,
                     subtitle: byId[x.id]!.date,

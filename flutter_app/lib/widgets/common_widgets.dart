@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/photo_item.dart';
 import '../theme/app_theme.dart';
+import 'photo_image.dart';
 import 'icon_paths.g.dart';
 
 // 이 파일의 위젯은 index.html(2aslx-patch-1) 의 CSS 클래스와 1:1 대응한다.
@@ -460,7 +462,7 @@ class IconBadge extends StatelessWidget {
   final int? gradIndex;
   final double size;
   final double radius;
-  final Uint8List? image;
+  final ImageProvider? image;
 
   @override
   Widget build(BuildContext context) {
@@ -475,7 +477,7 @@ class IconBadge extends StatelessWidget {
             : null,
         borderRadius: BorderRadius.circular(radius),
         image: image != null
-            ? DecorationImage(image: MemoryImage(image!), fit: BoxFit.cover)
+            ? DecorationImage(image: image!, fit: BoxFit.cover)
             : null,
       ),
       alignment: Alignment.center,
@@ -805,57 +807,78 @@ class PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bytes = decodeDataUrl(item.thumbDataUrl);
     final text =
         label ?? (item.date.length >= 2 ? item.date.substring(2) : item.date);
+    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2;
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(radius),
-          gradient: bytes == null ? kTileGradients[item.id % 6] : null,
-          image: bytes != null
-              ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover)
-              : null,
-        ),
-        child: Stack(
-          children: [
-            if (bytes == null)
-              Center(
-                child: Opacity(
-                  opacity: 0.92,
-                  child: SnapIcon(
-                    item.icon,
-                    size: iconSize,
-                    color: Colors.white,
-                    strokeWidth: 1.5,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, k) {
+          // 칸 크기에 맞는 화질로 불러온다 (iOS 원본 / 웹 1080 미리보기 / 썸네일)
+          final w = width ?? (k.hasBoundedWidth ? k.maxWidth : 120);
+          final h = height ?? (k.hasBoundedHeight ? k.maxHeight : w);
+          final provider = photoImageProvider(
+            item,
+            logicalSize: math.max(w, h),
+            dpr: dpr,
+          );
+          return _tile(provider, text);
+        },
+      ),
+    );
+  }
+
+  Widget _tile(ImageProvider? provider, String text) {
+    final bytes = provider;
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: kTileGradients[item.id % 6],
+        image: bytes != null
+            ? DecorationImage(
+                image: bytes,
+                fit: BoxFit.cover,
+                onError: (_, _) {},
+              )
+            : null,
+      ),
+      child: Stack(
+        children: [
+          if (bytes == null)
+            Center(
+              child: Opacity(
+                opacity: 0.92,
+                child: SnapIcon(
+                  item.icon,
+                  size: iconSize,
+                  color: Colors.white,
+                  strokeWidth: 1.5,
                 ),
               ),
-            if (showDate)
-              Positioned(
-                left: 6,
-                bottom: 4,
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                    shadows: [
-                      Shadow(
-                        color: Color(0x77000000),
-                        blurRadius: 3,
-                        offset: Offset(0, 1),
-                      ),
-                    ],
-                  ),
+            ),
+          if (showDate)
+            Positioned(
+              left: 6,
+              bottom: 4,
+              child: Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      color: Color(0x77000000),
+                      blurRadius: 3,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

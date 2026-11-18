@@ -3,23 +3,33 @@ import 'dart:math' as math;
 import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../services/image_processor.dart';
+import '../services/preview_store.dart';
 import '../services/snapback_api.dart';
 
+/// 분석 대기열 항목 — 웹은 고른 파일([file]), iOS 는 사진 보관함 에셋([asset]).
 class PickedFileEntry {
   PickedFileEntry({
-    required this.file,
+    this.file,
+    this.asset,
     required this.key,
     required this.modified,
   });
 
-  final XFile file;
+  final XFile? file;
+  final AssetEntity? asset;
   final String key;
   final DateTime modified;
+
+  String get label => file?.name ?? asset?.title ?? key;
 }
+
+/// 서버 검색이 한 번에 받는 사진 수(300)에 맞춘 분석 상한
+const int kMaxLibraryQueue = 300;
 
 class AnalysisLogEntry {
   AnalysisLogEntry({
@@ -267,7 +277,141 @@ class SnapbackState extends ChangeNotifier {
     go(10);
   }
 
+  // ── iOS 사진 보관함 (photo_manager) ─────────────────────────────
+  /// iOS 앱은 사진 보관함을 직접 읽는다. 웹은 파일 선택.
+  bool get useLibrary =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  PermissionState? libraryPermission;
+  int libraryCount = 0;
+  List<AssetPathEntity> libraryAlbums = [];
+  String? selectedAlbumId;
+  AssetPathEntity? _allPath;
+  List<AssetEntity> pickerAssets = [];
+  bool pickerHasMore = false;
+  final Set<String> pickedAssetIds = {};
+  bool _startAfterPick = false;
+
+  bool get libraryDenied =>
+      libraryPermission != null && !libraryPermission!.hasAccess;
+
+  /// 권한 요청 + 전체 사진 수 / 앨범 목록 불러오기.
+  bool _libLoading = false;
+  bool pickerLoading = false;
+
+  /// 화면이 처음 그려질 때 한 번만 사진 보관함 정보를 불러온다.
+  void ensureLibraryOnce() {
+    if (!useLibrary || _libLoading || libraryPermission != null) return;
+    _libLoading = true;
+    Future.microtask(() async {
+      await ensureLibrary();
+      _libLoading = false;
+    });
+  }
+
+  Future<bool> ensureLibrary() async {
+    if (!useLibrary) return false;
+    libraryPermission = await PhotoManager.requestPermissionExtend();
+    if (!libraryPermission!.hasAccess) {
+      notifyListeners();
+      return false;
+    }
+    final paths = await PhotoManager.getAssetPathList(type: RequestType.image);
+    _allPath = paths.where((p) => p.isAll).firstOrNull ?? paths.firstOrNull;
+    libraryCount = await _allPath?.assetCountAsync ?? 0;
+    libraryAlbums = paths.where((p) => !p.isAll).toList();
+    selectedAlbumId ??= libraryAlbums.firstOrNull?.id;
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> openLibrarySettings() => PhotoManager.openSetting();
+
+  /// '사진 직접 고르기' 그리드용 — 최근 사진부터 120장씩.
+  Future<void> loadPickerAssets({bool more = false}) async {
+    if (_allPath == null && !await ensureLibrary()) return;
+    final path = _allPath;
+    if (path == null) return;
+    if (pickerLoading) return;
+    pickerLoading = true;
+    notifyListeners();
+    final start = more ? pickerAssets.length : 0;
+    final page = await path.getAssetListRange(start: start, end: start + 120);
+    pickerAssets = more ? [...pickerAssets, ...page] : page;
+    pickerHasMore = pickerAssets.length < libraryCount;
+    pickerLoading = false;
+    notifyListeners();
+  }
+
+  void togglePickAsset(String id) {
+    if (!pickedAssetIds.remove(id)) pickedAssetIds.add(id);
+    notifyListeners();
+  }
+
+  void _enqueueAssets(Iterable<AssetEntity> assets) {
+    final seen = pickQueue.map((e) => e.key).toSet();
+    for (final a in assets) {
+      final k = 'asset:${a.id}';
+      if (seen.add(k)) {
+        pickQueue.add(PickedFileEntry(asset: a, key: k, modified: a.createDateTime));
+      }
+    }
+  }
+
+  /// '직접 고르기'에서 고른 사진을 대기열에 넣고 (홈 ＋로 왔으면 바로 분석 시작) 돌아간다.
+  void confirmPickedAssets() {
+    _enqueueAssets(pickerAssets.where((a) => pickedAssetIds.contains(a.id)));
+    pickedAssetIds.clear();
+    if (_startAfterPick) {
+      _startAfterPick = false;
+      go(5);
+      startAnalysis();
+    } else {
+      go(3);
+    }
+  }
+
+  /// '사진 접근 범위' + '분석 순서' 기준으로 사진 보관함에서 분석할 사진을 고른다.
+  Future<int> queueFromLibrary() async {
+    if (!await ensureLibrary()) return 0;
+    if (scopeSelection == 2) return pickQueue.length; // 직접 고른 사진 그대로
+    AssetPathEntity? path = _allPath;
+    if (scopeSelection == 1) {
+      path = libraryAlbums.where((p) => p.id == selectedAlbumId).firstOrNull ?? path;
+    }
+    if (path == null) return 0;
+    final total = await path.assetCountAsync;
+    // 메타데이터만 읽으므로 가볍다. 순서 기준으로 정렬한 뒤 상한만큼 담는다.
+    var list = await path.getAssetListRange(start: 0, end: math.min(total, 3000));
+    if (scopeSelection == 3) {
+      list = list.where((a) => !a.createDateTime.isBefore(DateTime(2022))).toList();
+    }
+    if (orderSelection == 1) {
+      list.sort((a, b) => a.createDateTime.compareTo(b.createDateTime));
+    } else if (orderSelection == 2) {
+      final py = int.tryParse(priorityYear) ?? 2026;
+      list.sort((a, b) {
+        final am = a.createDateTime.year == py ? 1 : 0;
+        final bm = b.createDateTime.year == py ? 1 : 0;
+        if (am != bm) return bm - am;
+        return b.createDateTime.compareTo(a.createDateTime);
+      });
+    } else {
+      list.sort((a, b) => b.createDateTime.compareTo(a.createDateTime));
+    }
+    _enqueueAssets(list.take(kMaxLibraryQueue));
+    notifyListeners();
+    return pickQueue.length;
+  }
+
   Future<int> pickPhotosFromGallery({bool startImmediately = false}) async {
+    if (useLibrary) {
+      // iOS: 사진 보관함 그리드에서 직접 고르기 (② 사진 직접 고르기)
+      _startAfterPick = startImmediately;
+      scopeSelection = 2;
+      go(2);
+      await loadPickerAssets();
+      return 0;
+    }
     final files = await _picker.pickMultiImage();
     if (files.isEmpty) return 0;
     final seen = pickQueue.map((e) => e.key).toSet();
@@ -343,8 +487,14 @@ class SnapbackState extends ChangeNotifier {
       notifyListeners();
 
       try {
-        final processed =
-            await ImageProcessor.process(entry.file, entry.modified);
+        final processed = entry.asset != null
+            ? await ImageProcessor.processAsset(entry.asset!)
+            : await ImageProcessor.process(entry.file!, entry.modified);
+        String? previewKey;
+        if (processed.previewBytes != null && PreviewStore.enabled) {
+          previewKey = 'pv:${entry.key}';
+          await PreviewStore.put(previewKey, processed.previewBytes!);
+        }
         final ai = await api.analyzeImage(processed.analyzeDataUrl);
         final rawFood = ai['food'];
         final foodList = rawFood is List
@@ -365,6 +515,10 @@ class SnapbackState extends ChangeNotifier {
           gps: processed.gps,
           exif: processed.hasExifDate,
           thumbDataUrl: processed.thumbDataUrl,
+          assetId: entry.asset?.id,
+          assetW: entry.asset?.width,
+          assetH: entry.asset?.height,
+          previewKey: previewKey,
         );
         db.add(item);
         await _saveDb();
@@ -383,7 +537,7 @@ class SnapbackState extends ChangeNotifier {
           0,
           AnalysisLogEntry(
             isError: true,
-            text: '⚠️ ${entry.file.name} — ${e.userMessage}',
+            text: '⚠️ ${entry.label} — ${e.userMessage}',
           ),
         );
       } catch (e) {
@@ -391,7 +545,7 @@ class SnapbackState extends ChangeNotifier {
           0,
           AnalysisLogEntry(
             isError: true,
-            text: '⚠️ ${entry.file.name} — 오류 ($e)',
+            text: '⚠️ ${entry.label} — 오류 ($e)',
           ),
         );
       }

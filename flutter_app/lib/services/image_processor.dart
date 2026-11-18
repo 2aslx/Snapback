@@ -4,6 +4,7 @@ import 'package:exif/exif.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 class ProcessedImage {
   ProcessedImage({
@@ -12,6 +13,7 @@ class ProcessedImage {
     required this.dateStr,
     required this.hasExifDate,
     this.gps,
+    this.previewBytes,
   });
 
   final String analyzeDataUrl;
@@ -19,7 +21,25 @@ class ProcessedImage {
   final String dateStr;
   final bool hasExifDate;
   final List<double>? gps;
+
+  /// 웹 전용 1080px 미리보기 JPEG (IndexedDB 저장용)
+  final Uint8List? previewBytes;
 }
+
+Uint8List _resizeToJpeg(_ResizeRequest req) {
+  final decoded = img.decodeImage(req.bytes);
+  if (decoded == null) return req.bytes;
+  final maxSide = math.max(decoded.width, decoded.height);
+  final resized = maxSide > req.maxDim
+      ? (decoded.width >= decoded.height
+          ? img.copyResize(decoded, width: req.maxDim)
+          : img.copyResize(decoded, height: req.maxDim))
+      : decoded;
+  return img.encodeJpg(resized, quality: req.quality);
+}
+
+String _dateStr(DateTime dt) =>
+    '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
 class _ResizeRequest {
   _ResizeRequest(this.bytes, this.maxDim, this.quality);
@@ -111,12 +131,50 @@ class ImageProcessor {
       _resizeAndEncode,
       _ResizeRequest(bytes, 160, 60),
     );
+    // 웹은 원본을 다시 읽을 수 없으니 큰 화면용 미리보기를 따로 만들어 둔다
+    final preview = kIsWeb
+        ? await compute(_resizeToJpeg, _ResizeRequest(bytes, 1080, 82))
+        : null;
 
     return ProcessedImage(
       analyzeDataUrl: analyzeUrl,
       thumbDataUrl: thumbUrl,
       dateStr: dateStr,
       hasExifDate: exifDt != null,
+      gps: gps,
+      previewBytes: preview,
+    );
+  }
+
+  /// iOS 사진 보관함 에셋: 원본 파일을 통째로 읽지 않고 필요한 크기만 시스템에서 받아온다.
+  static Future<ProcessedImage> processAsset(AssetEntity asset) async {
+    Future<String> jpeg(int size, int quality) async {
+      final b = await asset.thumbnailDataWithOption(
+        ThumbnailOption.ios(
+          size: ThumbnailSize.square(size),
+          quality: quality,
+          deliveryMode: DeliveryMode.highQualityFormat,
+          resizeMode: ResizeMode.exact,
+          resizeContentMode: ResizeContentMode.fit,
+        ),
+      );
+      if (b == null) throw StateError('asset_unavailable');
+      return 'data:image/jpeg;base64,${base64Encode(b)}';
+    }
+
+    List<double>? gps;
+    try {
+      final ll = await asset.latlngAsync();
+      if (ll != null && (ll.latitude != 0 || ll.longitude != 0)) {
+        gps = [ll.latitude, ll.longitude];
+      }
+    } catch (_) {}
+
+    return ProcessedImage(
+      analyzeDataUrl: await jpeg(640, 75),
+      thumbDataUrl: await jpeg(160, 60),
+      dateStr: _dateStr(asset.createDateTime),
+      hasExifDate: true,
       gps: gps,
     );
   }

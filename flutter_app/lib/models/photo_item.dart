@@ -15,6 +15,10 @@ class PhotoItem {
     this.exif = false,
     this.thumbDataUrl,
     this.hidden = false,
+    this.assetId,
+    this.assetW,
+    this.assetH,
+    this.previewKey,
   });
 
   final int id;
@@ -49,6 +53,14 @@ class PhotoItem {
   final String? thumbDataUrl;
   bool hidden;
 
+  /// iOS 사진 보관함 원본 ID (PHAsset.localIdentifier) — 화면 표시 때 원본에서 불러옴
+  final String? assetId;
+  final int? assetW;
+  final int? assetH;
+
+  /// 웹: IndexedDB 에 저장한 1080px 미리보기 키
+  final String? previewKey;
+
   Map<String, dynamic> toJson({bool includeThumb = true}) => {
         'id': id,
         if (fileKey != null) 'key': fileKey,
@@ -65,6 +77,11 @@ class PhotoItem {
         'exif': exif,
         if (includeThumb && thumbDataUrl != null) 'thumb': thumbDataUrl,
         if (hidden) 'hidden': true,
+        // 기기 저장용 필드 (AI 요청에는 보내지 않음)
+        if (includeThumb && assetId != null) 'asset': assetId,
+        if (includeThumb && assetW != null) 'aw': assetW,
+        if (includeThumb && assetH != null) 'ah': assetH,
+        if (includeThumb && previewKey != null) 'pv': previewKey,
       };
 
   factory PhotoItem.fromJson(Map<String, dynamic> j) {
@@ -96,6 +113,10 @@ class PhotoItem {
       exif: j['exif'] == true,
       thumbDataUrl: j['thumb'] as String?,
       hidden: j['hidden'] == true,
+      assetId: j['asset'] as String?,
+      assetW: (j['aw'] as num?)?.toInt(),
+      assetH: (j['ah'] as num?)?.toInt(),
+      previewKey: j['pv'] as String?,
     );
   }
 }
