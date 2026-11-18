@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: snapback
+    runtime: docker
+    plan: free
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false # Render 대시보드에서 직접 입력 (Git에 저장하지 않음)
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini

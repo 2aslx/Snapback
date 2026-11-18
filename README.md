@@ -6,4 +6,4 @@
 
 구조: 브라우저(public/index.html) → server.js(/api/analyze, /api/search) → OpenAI API
 - API 키는 서버(.env)에만 있고 브라우저에는 절대 내려가지 않는다. .env 는 Git에 올리지 말 것.
-- 배포: Render / Railway / Fly.io 등에 올리고 환경변수에 OPENAI_API_KEY 설정.
+- 배포(Render): 대시보드 → New → Blueprint → 이 저장소 선택 → `render.yaml` 인식 → OPENAI_API_KEY 입력. Dockerfile이 Flutter Web을 빌드해 server.js와 함께 실행한다.
