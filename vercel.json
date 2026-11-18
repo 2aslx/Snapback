@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo 'no npm dependencies'",
+  "buildCommand": "bash scripts/vercel-build.sh",
+  "outputDirectory": "flutter_app/build/web",
+  "functions": {
+    "api/*.js": { "maxDuration": 60 }
+  }
+}

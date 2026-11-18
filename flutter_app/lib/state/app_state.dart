@@ -158,7 +158,7 @@ class SnapbackState extends ChangeNotifier {
 
   Future<void> setServerUrl(String url) async {
     final clean = url.trim().replaceAll(RegExp(r'/+$'), '');
-    api.baseUrl = clean.isEmpty ? (kIsWeb ? '' : 'http://localhost:3000') : clean;
+    api.baseUrl = clean.isEmpty ? kDefaultApiUrl : clean;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_urlKey, clean);
     await refreshHealth();

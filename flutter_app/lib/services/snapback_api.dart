@@ -46,9 +46,18 @@ class SearchResponse {
   final SearchQuestion? question;
 }
 
+/// 기본 API 서버 주소.
+/// 웹은 같은 도메인('')을 쓰고, iOS 는 빌드 시 지정한 주소를 쓴다.
+/// 예: flutter run -d ios --dart-define=SNAPBACK_API_URL=https://snapback.vercel.app
+const String kDefaultApiUrl = kIsWeb
+    ? String.fromEnvironment('SNAPBACK_API_URL')
+    : String.fromEnvironment(
+        'SNAPBACK_API_URL',
+        defaultValue: 'http://localhost:3000',
+      );
+
 class SnapbackApi {
-  SnapbackApi({String? baseUrl})
-      : baseUrl = baseUrl ?? (kIsWeb ? '' : 'http://localhost:3000');
+  SnapbackApi({String? baseUrl}) : baseUrl = baseUrl ?? kDefaultApiUrl;
 
   String baseUrl;
 
