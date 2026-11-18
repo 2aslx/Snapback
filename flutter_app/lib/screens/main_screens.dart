@@ -642,26 +642,13 @@ class Screen10MemoryDetail extends StatelessWidget {
   }
 }
 
-class Screen11Albums extends StatefulWidget {
+class Screen11Albums extends StatelessWidget {
   const Screen11Albums({super.key, required this.state});
   final SnapbackState state;
 
   @override
-  State<Screen11Albums> createState() => _Screen11AlbumsState();
-}
-
-class _Screen11AlbumsState extends State<Screen11Albums> {
-  final _kwCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _kwCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final s = widget.state;
+    final s = state;
     final c = context.sc;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,95 +663,112 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
         ),
         const SizedBox(height: 16),
         Text(
-          '키워드 앨범',
+          '내 앨범',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w700,
             color: c.ink,
           ),
         ),
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
-          decoration: BoxDecoration(
-            color: c.card,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: c.line, width: 1.5),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _kwCtrl,
-                  style: TextStyle(fontSize: 14, color: c.ink),
-                  decoration: InputDecoration(
-                    hintText: '키워드 (예: 고양이)',
-                    hintStyle: TextStyle(color: c.mute),
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () {
-                  s.addKeywordAlbum(_kwCtrl.text);
-                  _kwCtrl.clear();
-                },
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: c.pri,
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text('＋', style: TextStyle(color: Colors.white)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 7,
-            crossAxisSpacing: 7,
-            childAspectRatio: 1.4,
-          ),
-          itemCount: s.keywordAlbums.length,
-          itemBuilder: (_, i) {
-            final a = s.keywordAlbums[i];
-            return Container(
+        const SizedBox(height: 8),
+        if (s.albums.isEmpty)
+          GestureDetector(
+            onTap: () => s.go(13),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(11),
-                gradient: kTileGradients[(i + 4) % kTileGradients.length],
+                color: c.card,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: c.line, width: 1.5),
               ),
-              child: Stack(
+              child: Column(
                 children: [
-                  Center(
-                    child: Text(
-                      a['emoji']!,
-                      style: const TextStyle(fontSize: 28),
+                  const Text('🗂️', style: TextStyle(fontSize: 28)),
+                  const SizedBox(height: 6),
+                  Text(
+                    '아직 앨범이 없어요',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: c.ink,
                     ),
                   ),
-                  Positioned(
-                    left: 8,
-                    bottom: 6,
-                    child: Text(
-                      a['title']!,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '🔍 사진을 검색하면 어울리는 앨범을 제안해 드려요',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: c.mute),
                   ),
                 ],
               ),
-            );
-          },
-        ),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 7,
+              crossAxisSpacing: 7,
+              childAspectRatio: 1.4,
+            ),
+            itemCount: s.albums.length,
+            itemBuilder: (_, i) {
+              final a = s.albums[i];
+              final photos = s.albumPhotos(a);
+              final cover =
+                  photos.isEmpty ? null : decodeDataUrl(photos.first.thumbDataUrl);
+              return GestureDetector(
+                onTap: () => s.openAlbum(a.id),
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(11),
+                    gradient: cover == null
+                        ? kTileGradients[(a.id + 4) % kTileGradients.length]
+                        : null,
+                    image: cover != null
+                        ? DecorationImage(
+                            image: MemoryImage(cover),
+                            fit: BoxFit.cover,
+                            colorFilter: const ColorFilter.mode(
+                              Color(0x33000000),
+                              BlendMode.darken,
+                            ),
+                          )
+                        : null,
+                  ),
+                  child: Stack(
+                    children: [
+                      if (cover == null)
+                        Center(
+                          child: Text(
+                            a.emoji,
+                            style: const TextStyle(fontSize: 28),
+                          ),
+                        ),
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        bottom: 6,
+                        child: Text(
+                          '${a.title} · ${photos.length}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         const SizedBox(height: 16),
         Text(
           '📱 스크린샷 정보 추출',
@@ -799,6 +803,101 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
           leading: buildIconBox(context, '☕'),
           title: '“카페와 미술관을 자주 가요”',
           subtitle: '다음 나들이: 한남 · 삼청 일대 추천',
+        ),
+      ],
+    );
+  }
+}
+
+
+class Screen16AlbumDetail extends StatefulWidget {
+  const Screen16AlbumDetail({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  State<Screen16AlbumDetail> createState() => _Screen16AlbumDetailState();
+}
+
+class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
+  bool _confirmDelete = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final album = s.albumById(s.activeAlbumId);
+    if (album == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SnapbackTopBar(title: '앨범', onBack: () => s.go(11)),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              '앨범을 찾을 수 없어요',
+              style: TextStyle(fontSize: 13, color: c.mute),
+            ),
+          ),
+        ],
+      );
+    }
+    final photos = s.albumPhotos(album);
+    final created = DateTime.fromMillisecondsSinceEpoch(album.createdAtMs);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapbackTopBar(title: album.title, onBack: () => s.go(11)),
+        const SizedBox(height: 6),
+        Text(
+          '${album.emoji} 사진 ${photos.length}장 · '
+          '${created.year}.${created.month}.${created.day} 검색에서 만듦',
+          style: TextStyle(fontSize: 12, color: c.mute),
+        ),
+        const SizedBox(height: 10),
+        if (photos.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: Text(
+                '이 앨범의 사진이 삭제되었거나 숨김 처리되었어요',
+                style: TextStyle(fontSize: 12.5, color: c.mute),
+              ),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+            ),
+            itemCount: photos.length,
+            itemBuilder: (_, i) => PhotoTile(
+              item: photos[i],
+              onTap: () => s.openMemory(photos[i].id),
+            ),
+          ),
+        const SizedBox(height: 14),
+        SnapButton(
+          label: _confirmDelete ? '한 번 더 누르면 앨범이 삭제돼요' : '앨범 삭제',
+          ghost: true,
+          onTap: () {
+            if (_confirmDelete) {
+              s.deleteAlbum(album.id);
+              s.go(11);
+            } else {
+              setState(() => _confirmDelete = true);
+            }
+          },
+        ),
+        const SizedBox(height: 6),
+        Center(
+          child: Text(
+            '앨범을 지워도 사진과 분석 정보는 그대로 남아요',
+            style: TextStyle(fontSize: 11, color: c.mute),
+          ),
         ),
       ],
     );

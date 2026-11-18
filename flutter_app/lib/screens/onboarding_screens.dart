@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/snap_runner.dart';
 
 class Screen0Welcome extends StatelessWidget {
   const Screen0Welcome({super.key, required this.state});
@@ -253,24 +254,7 @@ class Screen4Progress extends StatefulWidget {
   State<Screen4Progress> createState() => _Screen4ProgressState();
 }
 
-class _Screen4ProgressState extends State<Screen4Progress>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _anim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 450),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _anim.dispose();
-    super.dispose();
-  }
+class _Screen4ProgressState extends State<Screen4Progress> {
 
   String _formatEta(SnapbackState s) {
     if (s.analysisTotal == 0) return '-';
@@ -343,59 +327,59 @@ class _Screen4ProgressState extends State<Screen4Progress>
           ),
         ),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final maxW = constraints.maxWidth - 40;
-            final leftPos = (maxW * progress).clamp(0.0, maxW);
-            return SizedBox(
-              height: 54,
-              child: Stack(
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 8,
-                    child: Container(
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: c.line,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: progress,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(9),
-                            gradient: LinearGradient(
-                              colors: [const Color(0xFFA58BFF), c.pri],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // 프로토타입과 동일: 캐릭터 앞부분이 진행 지점에 오도록 left - 48
+              final w = constraints.maxWidth;
+              return SizedBox(
+                height: 92,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 8,
+                      child: Container(
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: c.line,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: progress,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(9),
+                              gradient: LinearGradient(
+                                colors: [const Color(0xFFA58BFF), c.pri],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const Positioned(
-                    right: 0,
-                    bottom: 12,
-                    child: Text('🏁', style: TextStyle(fontSize: 20)),
-                  ),
-                  AnimatedBuilder(
-                    animation: _anim,
-                    builder: (_, _) {
-                      final bob =
-                          (!paused && s.analysisRunning) ? -4 * _anim.value : 0.0;
-                      return Positioned(
-                        left: leftPos,
-                        bottom: 13 + bob,
-                        child: const Text('🏃', style: TextStyle(fontSize: 24)),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
+                    const Positioned(
+                      right: -6,
+                      bottom: 12,
+                      child: Text('🏁', style: TextStyle(fontSize: 20)),
+                    ),
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 600),
+                      left: w * progress - 48,
+                      bottom: 9,
+                      child: SnapRunner(
+                        running: s.analysisRunning && !paused,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
         Center(
           child: Text(
@@ -571,7 +555,7 @@ class _Screen4ProgressState extends State<Screen4Progress>
           ),
           child: Row(
             children: [
-              const Text('🌀', style: TextStyle(fontSize: 28)),
+              const SnapRunner(width: 46, running: false, effects: false),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

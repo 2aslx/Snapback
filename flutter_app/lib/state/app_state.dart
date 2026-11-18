@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../services/image_processor.dart';
 import '../services/snapback_api.dart';
@@ -60,6 +61,7 @@ class SnapbackState extends ChangeNotifier {
 
   static const _dbKey = 'snapback_db';
   static const _urlKey = 'snapback_server_url';
+  static const _albumsKey = 'snapback_albums';
 
   final SnapbackApi api = SnapbackApi();
   final ImagePicker _picker = ImagePicker();
@@ -105,11 +107,11 @@ class SnapbackState extends ChangeNotifier {
   bool backgroundAnalysis = true;
   String hiddenWarning = '';
 
-  // Albums (Screen 11)
-  final List<Map<String, String>> keywordAlbums = [
-    {'emoji': '🐱', 'title': '고양이 · 86'},
-    {'emoji': '🌊', 'title': '바다 · 120'},
-  ];
+  // Albums (Screen 11, 16) — 미리 정한 카테고리 없이, 검색 결과 제안으로만 만든다.
+  List<PhotoAlbum> albums = [];
+  int? activeAlbumId;
+  bool _albumSuggestionDismissed = false;
+  int? lastCreatedAlbumId; // 이번 검색에서 만든 앨범 (완료 안내용)
 
   // Usability test (Screen 14)
   ActiveTestSession? testSession;
@@ -125,6 +127,15 @@ class SnapbackState extends ChangeNotifier {
     final customUrl = prefs.getString(_urlKey);
     if (customUrl != null && customUrl.isNotEmpty) {
       api.baseUrl = customUrl;
+    }
+    final rawAlbums = prefs.getString(_albumsKey);
+    if (rawAlbums != null && rawAlbums.isNotEmpty) {
+      try {
+        albums = (jsonDecode(rawAlbums) as List)
+            .whereType<Map<String, dynamic>>()
+            .map(PhotoAlbum.fromJson)
+            .toList();
+      } catch (_) {}
     }
     final raw = prefs.getString(_dbKey);
     if (raw != null && raw.isNotEmpty) {
@@ -169,6 +180,16 @@ class SnapbackState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final uploaded = db.where((d) => d.id > 11).map((d) => d.toJson()).toList();
       await prefs.setString(_dbKey, jsonEncode(uploaded));
+    } catch (_) {}
+  }
+
+  Future<void> _saveAlbums() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _albumsKey,
+        jsonEncode(albums.map((a) => a.toJson()).toList()),
+      );
     } catch (_) {}
   }
 
@@ -370,6 +391,8 @@ class SnapbackState extends ChangeNotifier {
     searchHistory
       ..clear()
       ..add(q);
+    _albumSuggestionDismissed = false;
+    lastCreatedAlbumId = null;
     await _runSearch();
   }
 
@@ -434,11 +457,91 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addKeywordAlbum(String keyword) {
-    final v = keyword.trim();
-    if (v.isEmpty) return;
-    keywordAlbums.add({'emoji': '✨', 'title': '$v · 새 앨범'});
+  /// 검색 결과를 앨범으로 묶자는 제안. 보여줄 게 없으면 null.
+  AlbumSuggestion? get albumSuggestion {
+    if (testSession != null ||
+        searchBusy ||
+        searchError != null ||
+        _albumSuggestionDismissed ||
+        lastCreatedAlbumId != null ||
+        searchHistory.isEmpty ||
+        searchResults.isEmpty) {
+      return null;
+    }
+    final byId = {for (final d in db) d.id: d};
+    final ranked = searchResults.where((x) => byId.containsKey(x.id)).toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+    if (ranked.isEmpty) return null;
+    // 일치 확률 50% 이상인 사진을 묶는다 (없으면 1순위만)
+    var ids = ranked.where((x) => x.score >= 50).map((x) => x.id).toList();
+    if (ids.isEmpty) ids = [ranked.first.id];
+    // 같은 사진 묶음의 앨범이 이미 있으면 제안하지 않음
+    final key = (ids.toList()..sort()).join(',');
+    if (albums.any((a) => (a.photoIds.toList()..sort()).join(',') == key)) {
+      return null;
+    }
+    return AlbumSuggestion(
+      title: _albumTitleFrom(searchHistory.first),
+      emoji: byId[ids.first]!.emoji,
+      photoIds: ids,
+    );
+  }
+
+  static String _albumTitleFrom(String query) {
+    final q = query.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return q.length > 20 ? '${q.substring(0, 20)}…' : q;
+  }
+
+  void dismissAlbumSuggestion() {
+    _albumSuggestionDismissed = true;
     notifyListeners();
+  }
+
+  void createAlbumFromSuggestion(AlbumSuggestion sug, String title) {
+    final t = title.trim().isEmpty ? sug.title : title.trim();
+    final id = albums.fold<int>(0, (m, a) => a.id > m ? a.id : m) + 1;
+    albums.insert(
+      0,
+      PhotoAlbum(
+        id: id,
+        title: t,
+        emoji: sug.emoji,
+        photoIds: List.of(sug.photoIds),
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+    lastCreatedAlbumId = id;
+    notifyListeners();
+    _saveAlbums();
+  }
+
+  PhotoAlbum? albumById(int? id) {
+    for (final a in albums) {
+      if (a.id == id) return a;
+    }
+    return null;
+  }
+
+  /// 앨범에 담긴 사진 중 아직 DB 에 있고 숨김 처리되지 않은 것.
+  List<PhotoItem> albumPhotos(PhotoAlbum album) {
+    final byId = {for (final d in visiblePhotos) d.id: d};
+    return [
+      for (final id in album.photoIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
+  void openAlbum(int id) {
+    activeAlbumId = id;
+    go(16);
+  }
+
+  void deleteAlbum(int id) {
+    albums.removeWhere((a) => a.id == id);
+    if (lastCreatedAlbumId == id) lastCreatedAlbumId = null;
+    if (activeAlbumId == id) activeAlbumId = null;
+    notifyListeners();
+    _saveAlbums();
   }
 
   void startUsabilityTest(int targetId) {

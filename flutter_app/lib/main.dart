@@ -137,10 +137,8 @@ class _BottomTabBar extends StatelessWidget {
 
   static const _tabs = [
     (5, '🖼️', '사진'),
-    (13, '🔍', '검색'),
     (10, '💜', '기억'),
     (11, '🗂️', '앨범'),
-    (12, '⚙️', '설정'),
   ];
 
   @override
