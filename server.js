@@ -34,10 +34,19 @@ async function ask(content) {
 
 // 프롬프트는 서버가 소유 (프론트에서 마음대로 못 바꿈)
 const ANALYZE = '이 사진을 분석해 JSON만 출력(이름·신원 추측 금지): {"caption":"한 문장","food":["음식"],"place":"장소 유형","people":"인원수·옷차림 등 특성","background":"배경","weather":"날씨","time":"낮/저녁/밤/알 수 없음"}';
-const searchPrompt = (db, hist) =>
+const searchPrompt = (db, hist, extra = '') =>
   '너는 스마트 갤러리 기억 검색 엔진이다. 사진 DB에서 사용자의 흐릿한 기억과 대화 기록에 가장 맞는 사진을 찾아라.\nDB:' + JSON.stringify(db) +
   '\n대화:' + JSON.stringify(hist) +
-  '\nJSON만 출력: {"ranked":[{"id":숫자,"score":0-100,"matched":["맞은 단서"],"missing":["확인 안 된 단서"]}],"question":{"text":"후보를 가장 잘 가르는 질문 하나","options":["선택지 2~3개"]} 또는 null(후보가 뚜렷하면)}';
+  '\n규칙: 대화에 이미 나온 질문과 같거나 비슷한 주제(건너뛴 질문 포함)는 절대 다시 묻지 마라. 더 이상 가를 새 질문이 없거나 후보가 뚜렷하면 question을 null로 반환하라.' +
+  (extra ? '\n' + extra : '') +
+  '\nJSON만 출력: {"ranked":[{"id":숫자,"score":0-100,"matched":["맞은 단서"],"missing":["확인 안 된 단서"]}],"question":{"text":"아직 묻지 않은, 후보를 가장 잘 가르는 질문 하나","options":["선택지 2~3개"]} 또는 null}';
+
+const normQ = s => String(s || '').replace(/[\s?!.,'"`~]/g, '').toLowerCase();
+const askedQuestions = hist => hist.map(h => String(h).match(/^Q:\s*(.+?)\s*\/\s*A:/)?.[1]).filter(Boolean);
+const isDupQ = (q, asked) => {
+  const n = normQ(q?.text);
+  return !n || asked.some(a => normQ(a) === n);
+};
 
 const hits = new Map(); // IP당 분당 30회 제한
 const limited = ip => { const n = Date.now(), a = (hits.get(ip) || []).filter(t => n - t < 60000); a.push(n); hits.set(ip, a); return a.length > 30; };
@@ -58,7 +67,16 @@ http.createServer(async (req, res) => {
       if (req.url === '/api/search') {
         if (!Array.isArray(b.db) || !Array.isArray(b.hist) || b.db.length > 300) return send(res, 400, { error: 'bad_request' });
         const db = b.db.map(({ thumb, e, ...d }) => d); // 썸네일은 모델에 보내지 않음
-        return send(res, 200, await ask([{ type: 'input_text', text: searchPrompt(db, b.hist.slice(-12)) }]));
+        const hist = b.hist.slice(-12);
+        const asked = askedQuestions(hist);
+        let result = await ask([{ type: 'input_text', text: searchPrompt(db, hist) }]);
+        if (asked.length >= 5) {
+          result.question = null;
+        } else if (result.question && isDupQ(result.question, asked)) {
+          result = await ask([{ type: 'input_text', text: searchPrompt(db, hist, '방금 중복 질문을 냈다. 이미 물은 질문(' + asked.join(' | ') + ')을 제외하고 다른 질문을 내거나 null을 반환하라.') }]);
+          if (result.question && isDupQ(result.question, asked)) result.question = null;
+        }
+        return send(res, 200, result);
       }
       return send(res, 404, { error: 'not_found' });
     }
