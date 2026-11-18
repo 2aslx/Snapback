@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Snapback — 프로토타입</title>
+<style>
+:root{--bg:#f4f1fb;--card:#fff;--ink:#1d1633;--mute:#7b7494;--pri:#6c4de6;--soft:#ece6ff;--line:#e5def7;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#120e22;--card:#1d1736;--ink:#f1edff;--mute:#9d95bd;--soft:#2a2150;--line:#33295c}}
+:root[data-theme=dark]{--bg:#120e22;--card:#1d1736;--ink:#f1edff;--mute:#9d95bd;--soft:#2a2150;--line:#33295c}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Apple SD Gothic Neo",Pretendard,system-ui,sans-serif;min-height:100vh;display:flex;gap:26px;justify-content:center;align-items:center;flex-wrap:wrap;padding:18px}
+#flow{display:flex;flex-direction:column;gap:5px;width:210px;max-width:100%}#flow h1{font-size:17px}#flow small{color:var(--mute);font-size:11px;margin:6px 0 2px}
+#flow button{all:unset;cursor:pointer;padding:7px 11px;border-radius:11px;font-size:12px;background:var(--card);border:1px solid var(--line)}#flow button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.phone{width:360px;height:740px;max-width:100%;background:var(--card);border-radius:44px;border:8px solid #1b1530;position:relative;overflow:hidden;box-shadow:0 24px 60px #4b30b755}
+.sb{position:absolute;top:0;left:0;right:0;padding:12px 24px 0;display:flex;justify-content:space-between;font-size:12px;font-weight:600;z-index:5;pointer-events:none}
+.scr{position:absolute;inset:0;padding:42px 16px 20px;overflow-y:auto;display:none;background:linear-gradient(180deg,var(--soft) 0,var(--card) 200px)}.scr.tb{padding-bottom:86px}
+.scr.on{display:block;animation:in .25s}@keyframes in{from{opacity:0;transform:translateY(8px)}}
+h2{font-size:22px;line-height:1.3;margin:8px 0 6px}h3{font-size:14px;margin:16px 0 7px}.sub{color:var(--mute);font-size:13px;line-height:1.5}
+.top{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}.top .bk{cursor:pointer;font-size:20px}
+.btn{display:block;width:100%;padding:13px;border-radius:15px;background:var(--pri);color:#fff;text-align:center;font-weight:600;border:0;font-size:15px;cursor:pointer;margin-top:12px}.btn.g{background:var(--soft);color:var(--pri)}
+.opt{display:flex;gap:11px;align-items:center;padding:12px;border-radius:15px;background:var(--card);border:1.5px solid var(--line);margin-top:8px;cursor:pointer;font-size:14px}.opt.on{border-color:var(--pri);background:var(--soft)}.opt small{display:block;color:var(--mute);font-size:12px}
+.ic{width:36px;height:36px;border-radius:11px;background:var(--soft);display:grid;place-items:center;font-size:18px;flex:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{padding:6px 11px;border-radius:99px;background:var(--soft);color:var(--pri);font-size:12.5px;cursor:pointer;white-space:nowrap}.chip.on{background:var(--pri);color:#fff}
+.hs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}.grid.w{grid-template-columns:1fr 1fr;gap:7px}
+.ph{aspect-ratio:1;border-radius:11px;display:grid;place-items:center;font-size:24px;position:relative;cursor:pointer;flex:none}.hs .ph{width:80px}
+.ph small{position:absolute;bottom:4px;left:6px;font-size:10px;color:#fff;font-weight:600;text-shadow:0 1px 3px #0007}.ph .ck{position:absolute;top:4px;right:5px;width:18px;height:18px;border-radius:50%;background:#fff9;font-size:11px;display:grid;place-items:center;color:#fff}.ph.sel .ck{background:var(--pri)}.ph.sel{outline:3px solid var(--pri);outline-offset:-3px}
+.g1{background:linear-gradient(135deg,#f6b988,#e86f8c)}.g2{background:linear-gradient(135deg,#7bc4a8,#3a7f9c)}.g3{background:linear-gradient(135deg,#f3d58a,#c98a4b)}.g4{background:linear-gradient(135deg,#b9a2ff,#6c4de6)}.g5{background:linear-gradient(135deg,#ffc4dd,#f27fb0)}.g6{background:linear-gradient(135deg,#9ad2ff,#4a82e0)}
+.sbar{display:flex;gap:8px;align-items:center;background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:9px 13px;font-size:14px;color:var(--mute);cursor:pointer;margin:10px 0}.sbar.in{cursor:text;padding:5px 5px 5px 13px}.sbar input{flex:1;border:0;outline:0;background:none;color:var(--ink);font-size:14px;min-width:0}.sbar b{width:32px;height:32px;border-radius:50%;background:var(--pri);color:#fff;display:grid;place-items:center;font-weight:400;cursor:pointer}
+.banner{display:flex;gap:10px;align-items:center;background:var(--pri);color:#fff;border-radius:15px;padding:11px;font-size:12.5px;cursor:pointer;margin-bottom:8px}.banner .bar{flex:1}.bar{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.banner .bar{background:#fff4}.bar i{display:block;height:100%;background:var(--pri)}.banner .bar i{background:#fff}
+.ring{width:160px;height:160px;border-radius:50%;margin:8px auto;background:conic-gradient(var(--pri) calc(var(--p)*1%),var(--line) 0);display:grid;place-items:center}.ring div{width:134px;height:134px;border-radius:50%;background:var(--card);display:grid;place-items:center;text-align:center;font-size:12px;color:var(--mute)}.ring b{font-size:34px;color:var(--ink);display:block}
+.trk{position:relative;height:92px;margin:4px 8px 0}.trk .ln{position:absolute;left:0;right:0;bottom:8px;height:7px;border-radius:9px;background:var(--line)}.trk .ln i{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,#a58bff,var(--pri));width:68%;transition:width .6s linear}.trk .fl{position:absolute;right:-6px;bottom:12px;font-size:20px}.runner{position:absolute;bottom:9px;left:68%;width:66px;margin-left:-48px;transition:left .6s linear}.runner svg{width:66px;overflow:visible}.bob{animation:bob .45s infinite alternate ease-in-out}@keyframes bob{to{transform:translateY(-4px)}}.leg1{transform-origin:36px 62px;animation:sw .45s infinite alternate}.leg2{transform-origin:44px 62px;animation:sw .45s infinite alternate-reverse}@keyframes sw{from{transform:rotate(-30deg)}to{transform:rotate(30deg)}}.pause .bob,.pause .leg1,.pause .leg2{animation:none}.spd{animation:spd .45s infinite}@keyframes spd{50%{opacity:.2;transform:translateX(-5px)}}.pause .spd{animation:none;opacity:0}
+.st{display:flex;gap:7px;margin-top:10px}.st div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:9px;font-size:11px;color:var(--mute)}.st b{display:block;font-size:16px;color:var(--ink)}
+.bub{padding:9px 12px;border-radius:15px;font-size:13.5px;line-height:1.45;max-width:88%;margin:7px 0}.bot{background:var(--soft);border-bottom-left-radius:4px}.me{background:var(--pri);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.row{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:13px;margin-top:7px;font-size:13px;background:var(--card)}.row small{display:block;color:var(--mute);font-size:11.5px}.row .r{margin-left:auto;color:var(--pri);font-weight:700;font-size:12px}
+.tag{display:inline-block;padding:4px 9px;border-radius:99px;background:var(--soft);font-size:12px;margin:0 4px 5px 0}.hero{height:200px;border-radius:20px;display:grid;place-items:center;font-size:60px;margin:6px 0 10px}
+.tabs{position:absolute;bottom:0;left:0;right:0;height:70px;background:var(--card);border-top:1px solid var(--line);display:none;justify-content:space-around;padding-top:8px;z-index:6}.tabs.on{display:flex}.tabs div{text-align:center;font-size:10.5px;color:var(--mute);cursor:pointer;width:20%}.tabs i{display:block;font-style:normal;font-size:19px}.tabs .on{color:var(--pri);font-weight:700}
+.sw{width:42px;height:24px;border-radius:99px;background:var(--line);position:relative;cursor:pointer;margin-left:auto;flex:none}.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}.sw.on{background:var(--pri)}.sw.on::after{left:21px}
+.note{font-size:11px;color:var(--mute);margin-top:9px;text-align:center}.warn{background:#ffefd6;color:#8a5200;border-radius:12px;padding:9px 11px;font-size:12px;margin-top:8px;display:none}
+.map{height:90px;border-radius:13px;background:repeating-linear-gradient(45deg,var(--soft),var(--soft) 10px,var(--card) 10px,var(--card) 20px);display:grid;place-items:center;font-size:26px;margin-top:6px}
+</style></head><body>
+<nav id="flow"><h1>🌀 Snapback</h1><small>클릭해서 화면 이동 — 번호는 계획서 섹션</small></nav>
+<div class="phone"><div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+
+<section class="scr on" data-n="① 시작 안내" data-g="1"><div style="font-size:48px;margin-top:24px">🌀</div><h2>Snapback</h2><p class="sub">스냅사진 + 되돌아가다. 흐릿한 기억을 말하면 사진을 찾아 주고, 그날의 경험까지 다시 꺼내 주는 스마트 갤러리</p>
+<div class="row"><span class="ic">💬</span><div>기억나는 대로 말하면 돼요<small>“비 오는 날 창가에서 먹은 디저트”</small></div></div>
+<div class="row"><span class="ic">⏱️</span><div>처음엔 분석 시간이 필요해요<small>사진 3,000장 기준 약 10분 · 화면을 꺼도 계속돼요</small></div></div>
+<div class="row"><span class="ic">🔐</span><div>내가 허용한 사진만 분석해요<small>범위는 언제든 바꿀 수 있어요</small></div></div>
+<button class="btn" data-go="1">시작하기</button></section>
+
+<section class="scr" data-n="② 사진 범위 선택" data-g="2"><div class="top"><span class="bk" data-go="0">‹</span>사진 접근 범위</div><h2>어떤 사진을<br>허용할까요?</h2>
+<div class="opt on" data-sel><span class="ic">🖼️</span><div>전체 사진<small>3,420장</small></div></div>
+<div class="opt" data-sel><span class="ic">📁</span><div>앨범 선택<small>원하는 앨범만</small></div></div>
+<div class="opt" data-sel data-go="2"><span class="ic">✋</span><div>사진 직접 고르기<small>눌러서 하나씩 선택</small></div></div>
+<div class="opt" data-sel><span class="ic">📅</span><div>기간 지정<small>2022.01 ~ 지금</small></div></div>
+<button class="btn" data-go="3">다음</button></section>
+
+<section class="scr" data-n="②′ 사진 직접 고르기" data-g="2"><div class="top"><span class="bk" data-go="1">‹</span>사진 선택 <span style="margin-left:auto;font-size:12px;color:var(--pri)" id="cnt">0장</span></div>
+<label class="btn g" style="display:block;margin-top:14px"><input type="file" id="pf" accept="image/*" multiple hidden>📷 분석할 사진 선택</label><p class="note" id="pc2">선택한 사진: 0장</p><button class="btn" data-go="3">다음</button></section>
+
+<section class="scr" data-n="② 분석 순서" data-g="2"><div class="top"><span class="bk" data-go="1">‹</span>분석 순서</div><h2>어디부터<br>돌아볼까요?</h2><p class="sub">먼저 분석된 사진부터 바로 검색할 수 있어요.</p>
+<div class="opt on" data-sel><span class="ic">🌱</span><div>최근 사진부터<small>요즘 찍은 사진을 먼저</small></div></div>
+<div class="opt" data-sel><span class="ic">🕰️</span><div>오래된 사진부터<small>2022년부터 차근차근</small></div></div>
+<div class="opt" data-sel><span class="ic">🎯</span><div>지정 기간 우선<small>고른 기간을 먼저 분석</small></div></div>
+<div class="chips" style="margin-top:10px"><span class="chip on">2026</span><span class="chip">2025</span><span class="chip">2024</span><span class="chip">2023</span><span class="chip">2022</span></div>
+<button class="btn" data-go="4" id="go4">분석 시작</button></section>
+
+<section class="scr" id="prog" data-n="② 분석 진행" data-g="2"><div class="top"><span class="bk" data-go="5">‹</span>분석 진행</div>
+<div class="ring" id="ring" style="--p:68"><div><span><b id="pc">68%</b><span id="ps">분석 중</span></span></div></div><svg width="0" height="0" style="position:absolute"><defs><radialGradient id="cg" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#efeaff"/><stop offset="1" stop-color="#a58bff"/></radialGradient><symbol id="ch" viewBox="0 0 80 80"><path d="M32 46Q22 50 24 58M48 46Q58 48 56 40M36 62L30 76M44 62L52 74" stroke="#b9a4ff" stroke-width="6.5" stroke-linecap="round" fill="none"/><ellipse cx="40" cy="52" rx="12" ry="14" fill="url(#cg)" transform="rotate(12 40 52)"/><circle cx="40" cy="24" r="17" fill="url(#cg)"/><circle cx="44" cy="22" r="1.9" fill="#2b2160"/><circle cx="52" cy="22" r="1.9" fill="#2b2160"/><path d="M45 29Q48.5 33 52 29" stroke="#2b2160" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol></defs></svg><div class="trk"><div class="ln"><i id="lnf"></i></div><span class="fl">🏁</span><div class="runner" id="rnr"><svg viewBox="0 0 80 84"><g class="spd" stroke="#a58bff" stroke-width="2.5" stroke-linecap="round"><path d="M2 36H14M6 46H16"/></g><ellipse cx="40" cy="79" rx="20" ry="3.5" fill="#6c4de6" opacity=".25"/><g class="bob"><path class="leg1" d="M36 62L30 76" stroke="#b9a4ff" stroke-width="7" stroke-linecap="round" fill="none"/><path class="leg2" d="M44 62L52 74" stroke="#b9a4ff" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M32 46Q22 50 24 58M48 46Q58 48 56 40" stroke="#b9a4ff" stroke-width="6.5" stroke-linecap="round" fill="none"/><ellipse cx="40" cy="52" rx="12" ry="14" fill="url(#cg)" transform="rotate(12 40 52)"/><circle cx="40" cy="24" r="17" fill="url(#cg)"/><circle cx="44" cy="22" r="1.9" fill="#2b2160"/><circle cx="52" cy="22" r="1.9" fill="#2b2160"/><path d="M45 29Q48.5 33 52 29" stroke="#2b2160" stroke-width="1.8" fill="none" stroke-linecap="round"/></g></svg></div></div>
+<p class="sub" style="text-align:center" id="yr">지금 2023년 여름을 돌아보는 중 🌊</p>
+<div class="st"><div><b id="pn">0</b><span id="pt">완료 / 0</span></div><div><b id="eta_">~6분</b>남은 시간</div></div>
+<h3>시기별 진행</h3><div id="yrs"></div>
+<h3>잠금화면에서도 보여요</h3><div style="border-radius:26px;padding:12px 14px;background:linear-gradient(135deg,#232766,#6a4cc4);color:#fff;display:flex;gap:10px;align-items:center"><svg width="46" height="46" viewBox="0 0 80 80"><use href="#ch"/></svg><div style="flex:1"><b id="wp" style="font-size:20px">68%</b><div style="font-size:11px;opacity:.8">Analyzing your photos…</div><div class="bar" style="background:#fff3;margin-top:5px"><i id="wb" style="width:68%;background:#c9b8ff"></i></div></div></div><button class="btn g" id="pb">⏸ 일시정지</button><button class="btn" data-go="5">분석된 사진 먼저 보기</button>
+<p class="note">중단돼도 완료한 지점부터 이어서 분석해요 · 잠금화면에서 진행률 확인</p></section>
+
+<section class="scr tb" data-n="① 홈 (사진 + 기억으로 찾기)" data-g="1"><div class="top">Snapback <span style="margin-left:auto;font-size:18px" data-go="12">⚙️</span></div>
+<div class="sbar" data-go="13">🔍 기억으로 찾기 — 기억나는 대로 말해요</div>
+<div class="banner" data-go="4"><span>🏃</span><div style="flex:1">분석 진행 상황 <b id="bp"></b><div class="bar" style="margin-top:5px"><i id="bi" style="width:0"></i></div></div></div>
+<div class="chips hs"><span class="chip on">전체</span><span class="chip" data-go="6">🍜 음식</span><span class="chip" data-go="6">🧑 인물</span><span class="chip" data-go="6">📍 장소</span><span class="chip" data-go="6">🌅 배경</span><span class="chip" data-go="11">📱 스크린샷</span></div>
+<h3>2026년 10월</h3><div class="grid" id="home"></div></section>
+
+<section class="scr tb" data-n="③ 카테고리 탐색" data-g="3"><div class="top"><span class="bk" data-go="5">‹</span>🍜 음식 <span style="margin-left:auto;font-size:12px;color:var(--mute)">412장</span></div>
+<div class="chips hs" style="margin-top:10px"><span class="chip on">전체</span><span class="chip">디저트</span><span class="chip">면</span><span class="chip">커피</span><span class="chip">술</span></div>
+<div class="grid" id="food" style="margin-top:10px"></div></section>
+
+<section class="scr tb" data-n="③ 사진 정보 (추출 결과)" data-g="3"><div class="top"><span class="bk" data-go="5">‹</span>사진 정보</div><div class="hero g1">🍰</div>
+<h3>메타데이터</h3><span class="tag">🕓 2026.10.15 14:32</span><span class="tag">📍 37.54, 127.05</span>
+<h3>이미지 분석</h3><span class="tag">🍰 디저트</span><span class="tag">🏠 카페(실내)</span><span class="tag">🪟 큰 창·비</span><span class="tag">🧑 2명 · 니트</span>
+<div class="row"><span class="ic">🗂️</span><div>검색 DB 저장 완료<small>사진 ID #20261015-0832</small></div></div><button class="btn g" data-go="10">이 사진의 기억 보기</button></section>
+
+<section class="scr" data-n="④ 대화형 검색" data-g="4" id="chat"><div class="top"><span class="bk" data-go="5">‹</span>기억으로 찾기</div>
+<div class="sbar in" style="margin-top:10px"><input id="qi" value="비 오는 날 창가에서 먹은 디저트"><b id="qs">➤</b></div>
+<div id="log"></div></section>
+
+<section class="scr" data-n="④ 검색 결과" data-g="4"><div class="top"><span class="bk" data-go="8">‹</span>검색 결과 <span style="margin-left:auto;font-size:12px;color:var(--mute)">4장</span></div>
+<div class="row" style="margin-top:12px" data-go="10"><span class="ic g1">🍰</span><div>성수동 카페 · 2026.10.15<small>✔ 비 오는 날 ✔ 창가 ✔ 디저트 · 📍 성수동</small></div><span class="r">92%</span></div>
+<div class="row"><span class="ic g3">🥐</span><div>합정 베이커리 · 2026.07.02<small>✔ 디저트 ✔ 창가 · 비 정보 없음</small></div><span class="r">71%</span></div>
+<div class="row"><span class="ic g5">🍓</span><div>연남동 카페 · 2025.06.21<small>✔ 디저트 · 위치 확인 불가</small></div><span class="r">58%</span></div>
+<div class="row"><span class="ic g2">🍵</span><div>서촌 찻집 · 2025.04.09<small>✔ 창가 · 디저트 낮은 확신</small></div><span class="r">44%</span></div>
+<p class="note">단서에 맞은 항목을 표시해요 · 눌러서 자세히</p></section>
+
+<section class="scr tb" data-n="⑤ 기억 상세 · 연쇄 소환" data-g="5"><div class="top"><span class="bk" data-go="13">‹</span>Snapback</div><div class="hero g1" id="mh">🍰</div><h2 style="font-size:19px" id="mt">성수동 카페</h2><p class="sub" id="ms">2026.10.15 · 서울 성수동</p>
+<h3>🗓️ 같은 날의 사진 <span id="n1"></span></h3><div class="hs" id="same"></div>
+<h3>📍 가까운 장소에서 <span id="n2"></span></h3><div class="hs" id="near"></div>
+<h3>🎨 비슷한 분위기·배경 <span id="n3"></span></h3><div class="hs" id="sim"></div>
+<h3>🏪 방문 장소</h3><div class="map">📍</div><div class="row"><span class="ic">☕</span><div>카페 ○○<small>영업시간 10:00–21:00 · 연결 확실도 높음</small></div></div></section>
+
+<section class="scr tb" data-n="⑥ 앨범 · 스크린샷 (확장)" data-g="6"><div class="top">앨범·도구</div><div class="row" data-go="15" style="margin-top:10px"><span class="ic">👶</span><div>성장 기록 · 레퍼런스 보드<small>활용 모드</small></div></div><h3>키워드 앨범</h3><div class="sbar in"><input id="kw" placeholder="키워드 (예: 고양이)"><b id="mk">＋</b></div>
+<div class="grid w" id="alb"><div class="ph g5" style="aspect-ratio:1.4">🐱<small>고양이 · 86</small></div><div class="ph g6" style="aspect-ratio:1.4">🌊<small>바다 · 120</small></div></div>
+<h3 id="ss">📱 스크린샷 정보 추출</h3><div class="row"><span class="ic g4">👟</span><div>운동화<small>브랜드·모델·₩129,000</small></div><span class="r">복사</span></div><div class="row"><span class="ic g3">🧾</span><div>예약 확인서<small>11.20 · 2명 · 장소</small></div><span class="r">일정 추가</span></div>
+<h3 id="tp">🧭 취향 요약</h3><div class="row"><span class="ic">☕</span><div>“카페와 미술관을 자주 가요”<small>다음 나들이: 한남 · 삼청 일대 추천</small></div></div></section>
+
+<section class="scr" data-n="⑥ 설정 · 개인정보" data-g="6" id="set"><div class="top"><span class="bk" data-go="5">‹</span>설정 · 개인정보</div><h3>접근 범위 (연도별)</h3><div id="scope"></div><div class="warn" id="wn"></div><div class="opt" data-go="14"><span class="ic">🧪</span><div>사용성 테스트 모드<small>Top-5 포함률·시간·질문 수 측정</small></div><span style="margin-left:auto;color:var(--pri)">›</span></div>
+<h3>분석</h3><div class="opt" style="cursor:default">🔋 백그라운드 분석<span class="sw on" data-sw></span></div><div class="opt" style="cursor:default">🔄 분석 순서 다시 선택<span style="margin-left:auto;color:var(--pri)" data-go="3">›</span></div></section>
+
+<section class="scr tb" data-n="★ AI 연동 (OpenAI API)" data-g="4" id="ai"><div class="top"><span class="bk" data-go="5">‹</span>Snapback AI <span class="chip" style="margin-left:auto;font-size:11px" id="aiS">연결 확인 중…</span></div>
+<div class="row" style="display:block;font-size:11.5px;line-height:1.6;margin-top:10px">📷 사진 → <b>Vision 분석</b> → 속성 JSON(DB) → <b>질의 해석·랭킹</b> → <b>질문 생성</b> → 좁혀진 결과</div>
+<h3>1. 사진 분석 · 이미지 → 속성 추출</h3>
+<label class="btn g" id="lab" style="margin:0;display:block"><input type="file" id="fi" accept="image/*" multiple hidden>📷 내 사진 올려서 분석 (최대 4장)</label>
+<div id="dbv"></div><div id="last"></div>
+<h3>2. 기억으로 찾기 · 스무고개</h3>
+<div class="sbar in"><input id="aq" value="비 오는 날 창가에서 먹은 디저트"><b id="ag">➤</b></div>
+<div id="ao"></div></section>
+<section class="scr tb" data-n="⑥ 사용성 테스트 모드" data-g="6"><div class="top"><span class="bk" data-go="12">‹</span>테스트 모드</div><p class="sub" style="margin-top:8px">진행자가 목표 사진을 보여 주면, 참가자가 기억나는 대로 검색해 찾습니다. 시간·질문 수·순위를 자동 기록해요.</p><select id="tsel" style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);margin-top:10px"></select><button class="btn" id="tgo">테스트 시작</button><h3>결과</h3><div id="rep"></div></section>
+<section class="scr tb" data-n="⑤ 활용 모드 (성장·레퍼런스)" data-g="5"><div class="top"><span class="bk" data-go="11">‹</span>활용 모드</div><div class="chips" style="margin-top:10px"><span class="chip on" id="m1">👶 성장 기록</span><span class="chip" id="m2">🏠 레퍼런스 보드</span></div><div id="mode"></div></section>
+<div class="tabs" id="tabs"><div class="on" data-go="5"><i>🖼️</i>사진</div><div data-go="13"><i>🔍</i>검색</div><div data-go="10"><i>💜</i>기억</div><div data-go="11"><i>🗂️</i>앨범</div><div data-go="12"><i>⚙️</i>설정</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script>
+const S=[...document.querySelectorAll('.scr')],F=flow,TB=tabs,$=s=>document.querySelector(s);
+const G=['g1','g2','g3','g4','g5','g6'],E=['🍰','🌅','☕','🧑','🍜','🌸','🐱','🪟','🥗','🏖️','📚','🎨'];
+const tile=(i,l)=>`<div class="ph ${G[i%6]}">${E[i%12]}${l?'<small>'+l+'</small>':''}</div>`;
+const fill=(id,n,o=0)=>{$('#'+id).innerHTML=Array.from({length:n},(_,i)=>tile(i+o)).join('')};
+const FOOD=[['🍜','면'],['🍰','디저트'],['☕','커피'],['🍺','술'],['🍝','면'],['🧁','디저트'],['🍵','커피'],['🍷','술'],['🥐','디저트'],['🍲','면'],['🍮','디저트'],['🥤','커피']];
+function drawFood(c){food.innerHTML=FOOD.filter(x=>c=='전체'||x[1]==c).map((x,i)=>`<div class="ph ${G[i%6]}">${x[0]}</div>`).join('')}drawFood('전체');
+food.previousElementSibling.onclick=e=>{const c=e.target.closest('.chip');if(c)drawFood(c.textContent)};
+
+['2026','2025','2024','2023','2022'].forEach((y,i)=>yrs.insertAdjacentHTML('beforeend',`<div style="font-size:12px;margin-top:6px">${y} <span style="float:right;color:var(--mute)">${[100,100,100,60,10][i]}%</span></div><div class="bar"><i style="width:${[100,100,100,60,10][i]}%"></i></div>`));
+S.forEach((s,i)=>{const b=document.createElement('button');b.textContent=s.dataset.n;b.onclick=()=>go(i);F.appendChild(b)});
+function go(i){S.forEach((s,k)=>s.classList.toggle('on',k==i));TB.classList.toggle('on',S[i].classList.contains('tb'));[...F.querySelectorAll('button')].forEach((b,k)=>b.classList.toggle('on',k==i));
+[...TB.children].forEach(t=>t.classList.toggle('on',+t.dataset.go==i));S[i].scrollTop=0;if(i==8)chat0();if(i==12)renderSet();if(i==14){tsel.innerHTML=vis().map(d=>`<option value="${d.id}">#${d.id} ${esc(d.place)} · ${d.date}</option>`).join('');renderRep()}}
+let st,paused=0,p=68;
+document.addEventListener('click',e=>{const t=e.target,g=t.closest('[data-go]');
+const o=t.closest('[data-sel]');if(o){[...o.parentNode.querySelectorAll('[data-sel]')].forEach(x=>x.classList.remove('on'));o.classList.add('on')}
+const k=t.closest('[data-pk]');if(k){k.classList.toggle('sel');cnt.textContent=document.querySelectorAll('.sel').length+'장';return}
+const w=t.closest('[data-sw]');if(w){w.classList.toggle('on');if(w.dataset.sw)wn.style.display=w.classList.contains('on')?'none':'block';return}
+const c=t.closest('.chip:not([data-go])');if(c)[...c.parentNode.children].forEach(x=>x.classList.toggle('on',x==c));
+if(g)go(+g.dataset.go)});
+pb.onclick=()=>{paused=!paused;if(!paused&&PICK.length)setTimeout(startAnalysis,0);pb.textContent=paused?'▶ 이어서 분석':'⏸ 일시정지';ps.textContent=paused?'일시정지':'분석 중';prog.classList.toggle('pause',paused)};
+
+mk.onclick=()=>{const v=kw.value.trim();if(!v)return;alb.insertAdjacentHTML('beforeend',`<div class="ph ${G[alb.children.length%6]}" style="aspect-ratio:1.4">✨<small>${v.replace(/</g,'')} · 새 앨범</small></div>`);kw.value=''};
+const Q=[['낮이었나요, 저녁이었나요?',['낮','저녁'],128,19],['누구와 함께였나요?',['혼자','친구와'],19,4]];
+function chat0(){log.innerHTML='';step(0)}
+qs.onclick=()=>chat0();
+function step(n){if(n>=Q.length){log.insertAdjacentHTML('beforeend',`<div class="bub bot">후보가 <b>4장</b>으로 줄었어요!</div><button class="btn" data-go="9">결과 보기</button>`);return}
+const q=Q[n],id='q'+n;log.insertAdjacentHTML('beforeend',`<div class="bub bot">후보 <b>${q[2]}장</b> → 질문 ${n+1}/2<br><b>${q[0]}</b></div><div class="chips" id="${id}">${q[1].map(x=>`<span class="chip" data-a>${x}</span>`).join('')}<span class="chip" data-a style="background:none;border:1px dashed var(--mute);color:var(--mute)">기억 안 나요 (건너뛰기)</span></div>`);
+document.getElementById(id).onclick=e=>{const a=e.target.closest('[data-a]');if(!a)return;e.stopPropagation();document.getElementById(id).outerHTML=`<div class="bub me">${a.textContent.replace(' (건너뛰기)','')}</div>`;log.insertAdjacentHTML('beforeend',`<div class="bar" style="margin:4px 0"><i style="width:${100-q[3]/1.3}%"></i></div>`);step(n+1)}}
+
+const SEED=[{id:1,date:'2026-10-15',place:'카페(성수동)',food:['딸기 케이크'],people:'2명, 니트',background:'큰 창 밖으로 비',weather:'비',time:'낮',e:'🍰'},{id:2,date:'2026-07-02',place:'베이커리(합정)',food:['크루아상'],people:'혼자',background:'창가 자리, 햇살',weather:'맑음',time:'낮',e:'🥐'},{id:3,date:'2025-06-21',place:'카페(연남동)',food:['딸기 빙수'],people:'3명, 여름 옷',background:'실내',weather:'맑음',time:'저녁',e:'🍓'},{id:4,date:'2025-04-09',place:'찻집(서촌)',food:['말차 라떼'],people:'혼자',background:'한옥 창가',weather:'흐림',time:'낮',e:'🍵'},{id:5,date:'2024-08-14',place:'교토 거리',food:[],people:'2명, 여행 복장',background:'벚꽃, 탑',weather:'맑음',time:'낮',e:'🌸'},{id:6,date:'2026-03-02',place:'식당(홍대)',food:['파스타'],people:'4명',background:'어두운 조명',weather:'알 수 없음',time:'저녁',e:'🍝'},{id:7,date:'2025-12-24',place:'집(실내)',food:['홈파티 음식'],people:'3명',background:'트리, 조명',weather:'알 수 없음',time:'밤',e:'🎄'},{id:8,date:'2026-09-20',place:'한강공원',food:[],people:'혼자',background:'노을, 강',weather:'맑음',time:'저녁',e:'🌅'}];
+SEED.push({id:9,date:'2026-10-15',place:'성수동 거리',food:[],people:'2명',background:'벽돌 건물, 비',weather:'비',time:'낮',e:'🧱'},{id:10,date:'2026-10-15',place:'카페(성수동)',food:['아이스 커피'],people:'2명',background:'큰 창, 식물',weather:'비',time:'낮',e:'☕'},{id:11,date:'2026-10-15',place:'성수동 소품샵',food:[],people:'혼자',background:'조명, 실내',weather:'비',time:'저녁',e:'🛍️'});
+const GPS={1:[37.544,127.056],2:[37.549,126.914],3:[37.562,126.925],4:[37.58,126.97],5:[35.011,135.768],6:[37.556,126.924],8:[37.528,126.933],9:[37.545,127.057],10:[37.544,127.055],11:[37.546,127.058]};SEED.forEach(d=>d.gps=GPS[d.id]);
+let saved=[];try{saved=JSON.parse(localStorage.getItem('snapback_db')||'[]')}catch(e){}
+let DB=[...SEED,...saved],hist=[],cq='',sm=null,nid=Math.max(11,...saved.map(d=>d.id))+1,PICK=[],rid=0,tot=0,dn=0,T=null,LOG=[];
+const vis=()=>DB.filter(d=>!d.hidden),save=()=>{try{localStorage.setItem('snapback_db',JSON.stringify(DB.filter(d=>d.id>11)))}catch(e){}},key=f=>f.name+f.size+f.lastModified,Y=f=>new Date(f.lastModified).getFullYear();
+const tl=d=>`<div class="ph ${d.thumb?'':G[d.id%6]}" style="${d.thumb?'background:url('+d.thumb+') center/cover':''}" data-m="${d.id}">${d.thumb?'':(d.e||'🖼️')}<small>${d.date.slice(2)}</small></div>`;
+function drawHome(){home.innerHTML=vis().slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,24).map(tl).join('')}drawHome();
+const api=async(u,b)=>{let r;try{r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b),signal:AbortSignal.timeout(90000)})}catch(e){throw{code:e.name==='TimeoutError'?'timeout':'network'}}
+const j=await r.json().catch(()=>({}));if(!r.ok)throw{code:j.error||(r.status==429?'rate_limited':'http_'+r.status)};return j};
+const esc=x=>String(x??'').replace(/[<>&]/g,'');
+// 오류 코드 → 한국어 안내 (괄호 안 코드는 보고용)
+const ERR={openai_401:'API 키가 올바르지 않아요. .env 의 키를 확인하고 서버를 다시 시작해 주세요',openai_403:'이 API 키로는 해당 모델을 쓸 수 없어요',openai_404:'모델을 찾을 수 없어요. .env 의 OPENAI_MODEL 을 확인해 주세요',openai_400:'AI가 요청을 거절했어요 (모델이 이미지를 지원하지 않거나 사진 형식 문제)',openai_429:'OpenAI 사용 한도 초과 또는 크레딧 부족이에요. 결제/잔액을 확인해 주세요',openai_500:'OpenAI 서버 오류예요. 잠시 후 다시 시도해 주세요',openai_503:'OpenAI 서버가 바빠요. 잠시 후 다시 시도해 주세요',openai_unreachable:'서버가 OpenAI에 연결하지 못했어요. 인터넷 연결을 확인해 주세요',rate_limited:'요청이 너무 많아요. 1분 뒤 다시 시도해 주세요',timeout:'응답이 너무 오래 걸려요. 다시 시도해 주세요',network:'서버에 연결할 수 없어요. 터미널에서 npm start 가 켜져 있는지 확인해 주세요',bad_ai_json:'AI 응답 형식이 이상해요. 다시 시도해 주세요',bad_image:'이미지를 읽을 수 없어요',too_big:'사진 용량이 너무 커요',bad_request:'요청 형식 오류예요',server_error:'서버 내부 오류예요. 터미널 메시지를 확인해 주세요'};
+const err=e=>{const c=e&&e.code||'unknown';return (ERR[c]||'오류가 났어요')+' ('+c+')'};
+function drawDB(){dbv.innerHTML='<div class="hs" style="margin-top:8px">'+DB.map(d=>`<div class="ph ${d.thumb?'':G[d.id%6]}" style="${d.thumb?'background:url('+d.thumb+') center/cover':''}">${d.thumb?'':d.e}<small>#${d.id}</small></div>`).join('')+`</div><p class="note">DB ${DB.length}장 (데모 ${SEED.length}장 + 업로드)</p>`}
+drawDB();
+const shrink=(f,m=640)=>new Promise(r=>{const im=new Image();im.onload=()=>{const k=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>r({b,u:c.toDataURL('image/jpeg',.5)}),'image/jpeg',.8)};im.src=URL.createObjectURL(f)});
+// 실제로 서버에 연결 확인 (API 키 모양까지)
+(async()=>{try{const r=await fetch('/api/health',{signal:AbortSignal.timeout(5000)}),j=await r.json();sm=!!j.ok;aiS.textContent=j.key?'AI 연결됨 ✓':'⚠️ API 키 확인 필요'}catch(e){sm=false;aiS.textContent='⚠️ 서버 연결 안 됨'}})();
+async function analyze(f){const {u}=await shrink(f,640),{u:t}=await shrink(f,160);let ex={};try{const g=(await exifr.gps(f))||{},o=(await exifr.parse(f,['DateTimeOriginal']))||{};ex={gps:g.latitude?[g.latitude,g.longitude]:null,dt:o.DateTimeOriginal}}catch(e){}
+const r=await api('/api/analyze',{image:u}),dt=ex.dt||new Date(f.lastModified);const d={id:nid++,key:key(f),date:new Date(dt.getTime()-dt.getTimezoneOffset()*6e4).toISOString().slice(0,10),gps:ex.gps,exif:!!ex.dt,...r,thumb:t};DB.push(d);save();drawDB();drawHome();return d}
+fi.onchange=async()=>{if(fi.dataset.busy)return;if(!sm){last.innerHTML='<p class="note">⚠️ '+err({code:'network'})+'</p>';fi.value='';return}
+fi.dataset.busy=1;lab.style.opacity=.5;lab.style.pointerEvents='none';last.innerHTML='';let bad=0;const L=[...fi.files].slice(0,4);
+for(const [i,f] of L.entries()){aiS.textContent=`사진 분석 중… ${i+1}/${L.length}`;try{const d=await analyze(f);last.insertAdjacentHTML('beforeend',`<div class="row"><span class="ic">🧠</span><div>#${d.id} ${esc(d.caption)}<small>${esc(d.place)} · ${esc([].concat(d.food||[]).join(', ')||'음식 없음')} · ${d.exif?'EXIF 날짜':'파일 날짜'}${d.gps?' · GPS':''}</small></div></div>`)}catch(e){bad++;last.insertAdjacentHTML('beforeend',`<p class="note" style="color:#c0392b">⚠️ ${esc(f.name)} — ${esc(err(e))}</p>`)}}
+aiS.textContent=bad?`⚠️ ${bad}장 실패`:'AI 연결됨 ✓';fi.value='';delete fi.dataset.busy;lab.style.opacity='';lab.style.pointerEvents=''};
+let busy=0;async function run(){if(busy)return;busy=1;ag.style.opacity=.5;try{await run_()}finally{busy=0;ag.style.opacity=''}}
+async function run_(){if(!sm){ao.innerHTML='<p class="note">⚠️ '+err({code:'network'})+'</p>';return}
+ao.innerHTML='<p class="note">AI가 기억을 더듬는 중…</p>';
+try{const r=await api('/api/search',{db:vis(),hist});const m={};DB.forEach(d=>m[d.id]=d);const ids=(r.ranked||[]).slice(0,5).map(x=>+x.id);if(T){T.list=ids;if(T.first===undefined)T.first=ids.indexOf(T.id)+1}
+ao.innerHTML=(r.ranked||[]).slice(0,5).map(x=>{const d=m[x.id];return d?`<div class="row" data-m="${d.id}" style="cursor:pointer"><span class="ic" style="${d.thumb?'background:url('+d.thumb+') center/cover':''}">${d.thumb?'':(d.e||'🖼️')}</span><div>${esc(d.place)} · ${esc(d.date)}<small>✔ ${esc((x.matched||[]).join(' ✔ '))}${(x.missing||[]).length?' · ? '+esc(x.missing.join(', ')):''}</small></div><span class="r">${esc(x.score)}%</span></div>`:''}).join('')+(r.question&&r.question.options?(cq=r.question.text,`<div class="bub bot">${esc(cq)}</div><div class="chips">${r.question.options.map(o=>`<span class="chip" data-ans>${esc(o)}</span>`).join('')}<span class="chip" data-ans style="background:none;border:1px dashed var(--mute);color:var(--mute)">기억 안 나요</span></div>`):'<p class="note">✅ 후보가 충분히 좁혀졌어요</p>')}catch(e){ao.innerHTML='<p class="note" style="color:#c0392b">⚠️ '+esc(err(e))+'</p>'}}
+ag.onclick=()=>{if(busy||!aq.value.trim())return;hist=[aq.value.trim()];run()};
+ao.onclick=e=>{const a=e.target.closest('[data-ans]');if(!a||busy)return;hist.push('Q: '+cq+' / A: '+a.textContent);if(T)T.q++;run()};
+
+pf.onchange=()=>{PICK=[...pf.files];cnt.textContent=PICK.length+'장';pc2.textContent='선택한 사진: '+PICK.length+'장 (이미 분석한 사진은 건너뛰어요)'};
+go4.addEventListener('click',startAnalysis);
+async function startAnalysis(){const my=++rid;paused=0;pb.textContent='⏸ 일시정지';prog.classList.remove('pause');
+const sel=S[3].querySelector('.opt.on').textContent,yy=S[3].querySelector('.chip.on').textContent;
+let L=PICK.filter(f=>!DB.some(d=>d.key===key(f)));
+if(sel.includes('지정'))L.sort((a,b)=>(Y(b)==yy)-(Y(a)==yy)||b.lastModified-a.lastModified);else L.sort((a,b)=>sel.includes('오래된')?a.lastModified-b.lastModified:b.lastModified-a.lastModified);
+tot=PICK.length;dn=tot-L.length;ui(0,null,!L.length&&tot>0);const t0=Date.now();let k=0;
+for(const f of L){if(my!=rid||paused)return;try{await analyze(f)}catch(e){aiS.textContent=err(e)}dn++;k++;ui((Date.now()-t0)/k*(tot-dn),f)}
+if(my==rid&&L.length)ui(0,null,true)}
+function ui(eta,f,end){const p=tot?Math.round(dn/tot*100):0;ring.style.setProperty('--p',p);pc.textContent=p+'%';rnr.style.left=p+'%';lnf.style.width=p+'%';wp.textContent=p+'%';wb.style.width=p+'%';bp.textContent=p+'%';bi.style.width=p+'%';pn.textContent=dn;pt.textContent=' 완료 / '+tot;eta_.textContent=end?'완료':'~'+Math.max(1,Math.round(eta/60000))+'분';ps.textContent=end?'완료!':'분석 중';
+yr.textContent=!tot?'먼저 사진을 선택해 주세요':end?'모든 사진을 기억했어요 ✨':f?Y(f)+'년 '+(new Date(f.lastModified).getMonth()+1)+'월을 돌아보는 중':'시작합니다';
+const ys={};PICK.forEach(g=>{const y=Y(g);ys[y]=ys[y]||[0,0];ys[y][1]++;if(DB.some(d=>d.key===key(g)))ys[y][0]++});
+yrs.innerHTML=Object.keys(ys).sort().reverse().map(y=>`<div style="font-size:12px;margin-top:6px">${y} <span style="float:right;color:var(--mute)">${ys[y][0]}/${ys[y][1]}</span></div><div class="bar"><i style="width:${ys[y][0]/ys[y][1]*100}%"></i></div>`).join('')}
+const dist=(a,b)=>{if(!a||!b)return 1e9;const r=x=>x*Math.PI/180,h=Math.sin(r(b[0]-a[0])/2)**2+Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(r(b[1]-a[1])/2)**2;return 12742*Math.asin(Math.sqrt(h))};
+const tok=d=>new Set([d.weather,d.time,...String(d.background||'').split(/[ ,]+/),...String(d.place||'').split(/[()\s]+/),...[].concat(d.food||[])].filter(x=>x&&!['알','수','없음'].includes(x)));
+function openMem(id){const d=DB.find(x=>x.id==id);if(!d)return;const o=vis().filter(x=>x.id!=id),same=o.filter(x=>x.date==d.date),near=o.filter(x=>x.date!=d.date&&dist(d.gps,x.gps)<1.5),A=tok(d),
+sim=o.filter(x=>x.date!=d.date).map(x=>[[...tok(x)].filter(t=>A.has(t)).length,x]).filter(a=>a[0]>0).sort((a,b)=>b[0]-a[0]).slice(0,6).map(a=>a[1]);
+mh.className='hero '+(d.thumb?'':G[d.id%6]);mh.style.cssText=d.thumb?`background:url(${d.thumb}) center/cover`:'';mh.textContent=d.thumb?'':(d.e||'🖼️');mt.textContent=d.place||'사진';ms.textContent=d.date+(d.gps?' · 📍 GPS':'')+' · '+(d.caption||[].concat(d.food||[]).join(', '));
+const L=(a,el,n)=>{document.getElementById(el).innerHTML=a.length?a.map(tl).join(''):'<p class="note" style="margin:0">없어요</p>';document.getElementById(n).textContent='('+a.length+')'};L(same,'same','n1');L(near,'near','n2');L(sim,'sim','n3');go(10)}
+function renderSet(){const ys={};DB.forEach(d=>{const y=d.date.slice(0,4);ys[y]=(ys[y]||0)+1});scope.innerHTML=Object.keys(ys).sort().reverse().map(y=>`<div class="opt" style="cursor:default">📅 ${y}년 사진 (${ys[y]}장)<span class="sw ${DB.some(d=>d.date.startsWith(y)&&d.hidden)?'':'on'}" data-yr="${y}"></span></div>`).join('')}
+function renderRep(){const n=LOG.length;rep.innerHTML=n?`<div class="st"><div><b>${LOG.filter(x=>x.first>0).length}/${n}</b>첫 입력 Top-5</div><div><b>${LOG.filter(x=>x.hit).length}/${n}</b>찾음</div><div><b>${Math.round(LOG.reduce((a,x)=>a+x.ms,0)/n/1000)}초</b>평균 시간</div></div>`+LOG.map(x=>`<div class="row">#${x.id}<small>${Math.round(x.ms/1000)}초 · 질문 ${x.q}회 · 첫 순위 ${x.first||'밖'} · ${x.hit?'✔ 찾음':'✘ 못 찾음'}</small></div>`).join(''):'<p class="note">아직 기록이 없어요</p>'}
+tgo.onclick=()=>{T={id:+tsel.value,t0:Date.now(),q:0,first:undefined,list:[]};hist=[];aq.value='';ao.innerHTML='<p class="note">🧪 테스트 중 — 목표 사진을 떠올려 기억나는 대로 입력하고, 찾으면 그 사진을 누르세요</p>';go(13)};
+document.addEventListener('click',e=>{const w=e.target.closest('[data-yr]');if(w){w.classList.toggle('on');const off=!w.classList.contains('on');let n=0;DB.forEach(d=>{if(d.date.startsWith(w.dataset.yr)){d.hidden=off;n++}});wn.style.display=off?'block':'none';wn.textContent=off?w.dataset.yr+'년 사진 '+n+'장과 분석 정보가 검색에서 제외됩니다.':'';drawHome();return}
+const m=e.target.closest('[data-m]');if(!m)return;const id=+m.dataset.m;
+if(T&&m.closest('#ao')){LOG.push({id:T.id,ms:Date.now()-T.t0,q:T.q,first:T.first,hit:id==T.id});T=null;go(14);return}openMem(id)});
+function growth(){const b=new Date(bd.value),g={};vis().forEach(d=>{const k=d.date.slice(0,7);(g[k]=g[k]||[]).push(d)});gl.innerHTML=Object.keys(g).sort().map(k=>{const [y,m]=k.split('-'),age=(y-b.getFullYear())*12+(m-1-b.getMonth());return`<h3>${y}.${m} <span style="color:var(--pri)">${age>=0?'생후 '+age+'개월':'출생 전'}</span></h3><div class="grid">${g[k].map(tl).join('')}</div>`}).join('')}
+function board(){const q=bq.value||'',a=vis().filter(d=>JSON.stringify([d.place,d.background,d.caption,d.food,d.weather]).includes(q));bl.innerHTML=`<div class="grid">${a.map(tl).join('')}</div><p class="note">${a.length}장</p>`}
+function renderMode(k){mode.innerHTML=k=='g'?`<p class="sub" style="margin-top:8px">아이 생일을 입력하면 월령별로 모아 보여요</p><div class="sbar in"><input id="bd" type="date" value="2026-01-01"><b id="bg">⟳</b></div><div id="gl"></div>`:`<div class="sbar in"><input id="bq" placeholder="공간·분위기 (예: 창, 조명, 실내)"><b id="bb">🔍</b></div><div id="bl"></div>`;if(k=='g'){bg.onclick=growth;growth()}else{bb.onclick=board;bq.oninput=board;board()}}
+m1.onclick=()=>renderMode('g');m2.onclick=()=>renderMode('i');renderMode('g');
+go(0);
+</script></body></html>
