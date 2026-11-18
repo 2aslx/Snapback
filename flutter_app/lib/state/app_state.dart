@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -194,8 +195,28 @@ class SnapbackState extends ChangeNotifier {
   }
 
   void go(int idx) {
+    seamlessSwitch = false;
     screen = idx;
     notifyListeners();
+  }
+
+  /// true 면 화면 전환 시 크로스페이드 없이 바로 바꾼다 (검색창이 직접 이어지는 전환용).
+  bool seamlessSwitch = false;
+  Rect? _searchOrigin;
+
+  /// 홈 검색창([origin] 위치)에서 검색 화면으로: 창이 그 자리에서 내려오도록 위치를 넘긴다.
+  void openSearchFrom(Rect origin) {
+    _searchOrigin = origin;
+    screen = 13;
+    seamlessSwitch = true;
+    notifyListeners();
+  }
+
+  /// 검색 화면이 진입 애니메이션 시작 위치를 한 번만 가져간다.
+  Rect? takeSearchOrigin() {
+    final r = _searchOrigin;
+    _searchOrigin = null;
+    return r;
   }
 
   void openMemory(int id) {

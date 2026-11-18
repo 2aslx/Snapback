@@ -15,6 +15,13 @@ class Screen5Home extends StatefulWidget {
 
 class _Screen5HomeState extends State<Screen5Home> {
   String _chip = '전체';
+  final _searchBoxKey = GlobalKey();
+
+  void _openSearch(SnapbackState s) {
+    final box = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return s.go(13);
+    s.openSearchFrom(box.localToGlobal(Offset.zero) & box.size);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,24 +44,12 @@ class _Screen5HomeState extends State<Screen5Home> {
             child: const Text('⚙️', style: TextStyle(fontSize: 18)),
           ),
         ),
+        // 검색 화면과 같은 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
         GestureDetector(
-          onTap: () => s.go(13),
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-            decoration: BoxDecoration(
-              color: c.card,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: c.line, width: 1.5),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '🔍 기억으로 찾기 — 기억나는 대로 말해요',
-                  style: TextStyle(fontSize: 13.5, color: c.mute),
-                ),
-              ],
-            ),
+          onTap: () => _openSearch(s),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: SearchBoxField(key: _searchBoxKey, enabled: false),
           ),
         ),
         GestureDetector(
@@ -1063,14 +1058,76 @@ class Screen13Search extends StatefulWidget {
   State<Screen13Search> createState() => _Screen13SearchState();
 }
 
-class _Screen13SearchState extends State<Screen13Search> {
+class _Screen13SearchState extends State<Screen13Search>
+    with SingleTickerProviderStateMixin {
   final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  final _boxKey = GlobalKey();
+  // 진입 애니메이션: 홈 검색창 위치 → 제자리로 스르르, 나머지는 뒤따라 페이드 인
+  late final AnimationController _enter = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 560),
+  );
+  late final Animation<double> _boxMove = CurvedAnimation(
+    parent: _enter,
+    curve: const Interval(0, 0.8, curve: Curves.easeInOutCubic),
+  );
+  late final Animation<double> _reveal = CurvedAnimation(
+    parent: _enter,
+    curve: const Interval(0.4, 1, curve: Curves.easeOut),
+  );
+  double _fromDy = 0;
+  bool _measuring = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final from = widget.state.takeSearchOrigin();
+    if (from == null) {
+      _enter.value = 1;
+      return;
+    }
+    _measuring = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
+      final reduceMotion = MediaQuery.of(context).disableAnimations;
+      setState(() {
+        _measuring = false;
+        if (box != null && box.hasSize && !reduceMotion) {
+          _fromDy = from.top - box.localToGlobal(Offset.zero).dy;
+        }
+      });
+      if (reduceMotion) {
+        _enter.value = 1;
+        _focus.requestFocus();
+        return;
+      }
+      _enter.forward().whenComplete(() {
+        if (mounted) _focus.requestFocus();
+      });
+    });
+  }
 
   @override
   void dispose() {
+    _enter.dispose();
+    _focus.dispose();
     _ctrl.dispose();
     super.dispose();
   }
+
+  Widget _revealed(Widget child, {double rise = 0}) => AnimatedBuilder(
+        animation: _reveal,
+        builder: (_, w) => Opacity(
+          opacity: _reveal.value,
+          child: Transform.translate(
+            offset: Offset(0, rise * (1 - _reveal.value)),
+            child: w,
+          ),
+        ),
+        child: child,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1081,62 +1138,50 @@ class _Screen13SearchState extends State<Screen13Search> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(
-          title: '검색',
-          onBack: () => s.go(5),
-          trailing: SnapChip(label: s.aiStatusText),
+        _revealed(
+          SnapbackTopBar(
+            title: '검색',
+            onBack: () => s.go(5),
+            trailing: SnapChip(label: s.aiStatusText),
+          ),
         ),
         const SizedBox(height: 24),
-        Text(
-          '어떤 사진을\n찾고 계시나요?',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
-            height: 1.3,
-            color: c.ink,
+        _revealed(
+          rise: 10,
+          Text(
+            '어떤 사진을\n찾고 계시나요?',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              height: 1.3,
+              color: c.ink,
+            ),
           ),
         ),
-        Container(
-          margin: const EdgeInsets.only(top: 14, bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
-          decoration: BoxDecoration(
-            color: c.card,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: c.line, width: 1.5),
+        Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 10),
+          child: AnimatedBuilder(
+            animation: _boxMove,
+            builder: (_, w) => Opacity(
+              opacity: _measuring ? 0 : 1,
+              child: Transform.translate(
+                offset: Offset(0, _fromDy * (1 - _boxMove.value)),
+                child: w,
+              ),
+            ),
+            child: SearchBoxField(
+              key: _boxKey,
+              controller: _ctrl,
+              focusNode: _focus,
+              busy: s.searchBusy,
+              onSubmit: () => s.startNewSearch(_ctrl.text),
+            ),
           ),
-          child: Row(
+        ),
+        _revealed(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _ctrl,
-                  style: TextStyle(fontSize: 14, color: c.ink),
-                  onSubmitted: (_) => s.startNewSearch(_ctrl.text),
-                  decoration: InputDecoration(
-                    hintText: '기억나는 대로 말해보세요 (예: 비 오는 날 창가 디저트)',
-                    hintStyle: TextStyle(color: c.mute, fontSize: 13.5),
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => s.startNewSearch(_ctrl.text),
-                child: Opacity(
-                  opacity: s.searchBusy ? 0.5 : 1.0,
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: c.pri,
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text('➤', style: TextStyle(color: Colors.white)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
         if (s.testSession != null && s.searchHistory.isEmpty)
           Center(
             child: Text(
@@ -1350,6 +1395,9 @@ class _Screen13SearchState extends State<Screen13Search> {
               ),
             ),
         ],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1844,6 +1892,75 @@ class _Screen15ModeState extends State<Screen15Mode> {
           }(),
         ],
       ],
+    );
+  }
+}
+
+/// 홈(누르면 검색으로 이동)과 검색 화면이 함께 쓰는 검색창.
+/// 두 화면에서 모양·크기가 같아야 전환 때 같은 창이 내려오는 것처럼 보인다.
+class SearchBoxField extends StatelessWidget {
+  const SearchBoxField({
+    super.key,
+    this.enabled = true,
+    this.controller,
+    this.focusNode,
+    this.busy = false,
+    this.onSubmit,
+  });
+
+  final bool enabled;
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+  final bool busy;
+  final VoidCallback? onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: c.line, width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: IgnorePointer(
+              ignoring: !enabled,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                readOnly: !enabled,
+                style: TextStyle(fontSize: 14, color: c.ink),
+                onSubmitted: (_) => onSubmit?.call(),
+                decoration: InputDecoration(
+                  hintText: '🔍 기억나는 대로 말해보세요 (예: 비 오는 날 창가 디저트)',
+                  hintStyle: TextStyle(color: c.mute, fontSize: 13.5),
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: enabled ? onSubmit : null,
+            child: Opacity(
+              opacity: busy ? 0.5 : 1.0,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: c.pri,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const Text('➤', style: TextStyle(color: Colors.white)),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
