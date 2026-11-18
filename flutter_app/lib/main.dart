@@ -44,7 +44,7 @@ class _SnapbackShell extends StatelessWidget {
   const _SnapbackShell({required this.state});
   final SnapbackState state;
 
-  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15};
+  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16};
 
   Widget _buildScreen() {
     switch (state.screen) {
@@ -80,6 +80,8 @@ class _SnapbackShell extends StatelessWidget {
         return Screen14UsabilityTest(state: state);
       case 15:
         return Screen15Mode(state: state);
+      case 16:
+        return Screen16AlbumDetail(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -152,7 +154,8 @@ class _BottomTabBar extends StatelessWidget {
       ),
       child: Row(
         children: _tabs.map((t) {
-          final active = state.screen == t.$1;
+          final active =
+              state.screen == t.$1 || (t.$1 == 11 && state.screen == 16);
           return Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,

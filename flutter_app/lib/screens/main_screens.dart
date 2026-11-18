@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
@@ -1331,8 +1332,150 @@ class _Screen13SearchState extends State<Screen13Search> {
                 ),
               ),
             ),
+          if (s.albumSuggestion case final sug?)
+            _AlbumSuggestionCard(
+              key: ValueKey('album-sug-${s.searchHistory.first}'),
+              state: s,
+              suggestion: sug,
+            )
+          else if (s.albumById(s.lastCreatedAlbumId) case final made?)
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: SnapRowCard(
+                leading: buildIconBox(context, made.emoji),
+                title: '✅ \'${made.title}\' 앨범을 만들었어요',
+                subtitle: '사진 ${made.photoIds.length}장 · 앨범 탭에서 볼 수 있어요',
+                trailingText: '보러 가기',
+                onTap: () => s.openAlbum(made.id),
+              ),
+            ),
         ],
       ],
+    );
+  }
+}
+
+/// 검색 결과 아래 "이런 앨범으로 만들어 드릴까요?" 제안 카드.
+class _AlbumSuggestionCard extends StatefulWidget {
+  const _AlbumSuggestionCard({
+    super.key,
+    required this.state,
+    required this.suggestion,
+  });
+
+  final SnapbackState state;
+  final AlbumSuggestion suggestion;
+
+  @override
+  State<_AlbumSuggestionCard> createState() => _AlbumSuggestionCardState();
+}
+
+class _AlbumSuggestionCardState extends State<_AlbumSuggestionCard> {
+  late final TextEditingController _title =
+      TextEditingController(text: widget.suggestion.title);
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final sug = widget.suggestion;
+    final c = context.sc;
+    final byId = {for (final d in s.db) d.id: d};
+    final photos = [
+      for (final id in sug.photoIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: c.soft,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '📁 이런 앨범으로 만들어 드릴까요?',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: c.ink,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '이번 검색과 잘 맞는 사진 ${photos.length}장을 묶을게요',
+            style: TextStyle(fontSize: 12, color: c.mute),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 52,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: photos.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (_, i) => PhotoTile(
+                item: photos[i],
+                width: 52,
+                height: 52,
+                showDate: false,
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            decoration: BoxDecoration(
+              color: c.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: c.line, width: 1.5),
+            ),
+            child: Row(
+              children: [
+                Text(sug.emoji, style: const TextStyle(fontSize: 16)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _title,
+                    style: TextStyle(fontSize: 14, color: c.ink),
+                    decoration: InputDecoration(
+                      hintText: '앨범 이름',
+                      hintStyle: TextStyle(color: c.mute),
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                Text('✏️', style: TextStyle(fontSize: 12, color: c.mute)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: SnapButton(
+                  label: '괜찮아요',
+                  ghost: true,
+                  onTap: s.dismissAlbumSuggestion,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SnapButton(
+                  label: '앨범 만들기',
+                  onTap: () => s.createAlbumFromSuggestion(sug, _title.text),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
