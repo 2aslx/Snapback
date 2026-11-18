@@ -113,14 +113,39 @@ class _SnapbackShell extends StatelessWidget {
             child: Column(
               children: [
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      showTabs ? 20 : 24,
+                  // 화면 전환: 새 화면이 살짝 위로 떠오르며 페이드 인 (프로토타입 .25s 효과)
+                  child: AnimatedSwitcher(
+                    duration: MediaQuery.of(context).disableAnimations
+                        ? Duration.zero
+                        : const Duration(milliseconds: 280),
+                    reverseDuration: const Duration(milliseconds: 160),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeIn,
+                    layoutBuilder: (current, previous) => Stack(
+                      fit: StackFit.expand,
+                      children: [...previous, ?current],
                     ),
-                    child: _buildScreen(),
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween(
+                          begin: const Offset(0, 0.012),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    // 화면마다 스크롤 뷰를 새로 만들어 항상 맨 위에서 시작
+                    child: SingleChildScrollView(
+                      key: ValueKey(state.screen),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        16,
+                        16,
+                        showTabs ? 20 : 24,
+                      ),
+                      child: _buildScreen(),
+                    ),
                   ),
                 ),
                 if (showTabs) _BottomTabBar(state: state),
