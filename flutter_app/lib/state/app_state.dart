@@ -212,6 +212,25 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 홈 검색창의 위치 (홈 스크롤 0 기준, 전역 y). 검색에서 뒤로 올 때 목표 지점.
+  double? homeSearchBoxTop;
+  bool _homeReturn = false;
+
+  /// 검색창이 홈 자리까지 올라간 뒤 호출: 크로스페이드 없이 홈으로 전환.
+  void returnHomeFromSearch() {
+    _homeReturn = true;
+    screen = 5;
+    seamlessSwitch = true;
+    notifyListeners();
+  }
+
+  /// 홈이 '검색에서 돌아옴' 여부를 한 번만 가져간다.
+  bool takeHomeReturn() {
+    final r = _homeReturn;
+    _homeReturn = false;
+    return r;
+  }
+
   /// 검색 화면이 진입 애니메이션 시작 위치를 한 번만 가져간다.
   Rect? takeSearchOrigin() {
     final r = _searchOrigin;

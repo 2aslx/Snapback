@@ -13,15 +13,43 @@ class Screen5Home extends StatefulWidget {
   State<Screen5Home> createState() => _Screen5HomeState();
 }
 
-class _Screen5HomeState extends State<Screen5Home> {
+class _Screen5HomeState extends State<Screen5Home>
+    with SingleTickerProviderStateMixin {
   String _chip = '전체';
   final _searchBoxKey = GlobalKey();
+  // 검색에서 뒤로 왔을 때: 검색창은 이미 제자리, 나머지 내용만 페이드 인
+  late final AnimationController _reveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+    value: 1,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.state.takeHomeReturn()) _reveal.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _reveal.dispose();
+    super.dispose();
+  }
 
   void _openSearch(SnapbackState s) {
     final box = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return s.go(13);
-    s.openSearchFrom(box.localToGlobal(Offset.zero) & box.size);
+    final top = box.localToGlobal(Offset.zero);
+    // 스크롤 0 기준 위치를 기억해 두면, 돌아올 때(맨 위에서 시작) 이 자리로 올라온다
+    final scrolled = Scrollable.maybeOf(context)?.position.pixels ?? 0;
+    s.homeSearchBoxTop = top.dy + scrolled;
+    s.openSearchFrom(top & box.size);
   }
+
+  Widget _faded(Widget child) => FadeTransition(
+        opacity: CurvedAnimation(parent: _reveal, curve: Curves.easeOut),
+        child: child,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -37,11 +65,13 @@ class _Screen5HomeState extends State<Screen5Home> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(
-          title: 'Snapback',
-          trailing: GestureDetector(
-            onTap: () => s.go(12),
-            child: const Text('⚙️', style: TextStyle(fontSize: 18)),
+        _faded(
+          SnapbackTopBar(
+            title: 'Snapback',
+            trailing: GestureDetector(
+              onTap: () => s.go(12),
+              child: const Text('⚙️', style: TextStyle(fontSize: 18)),
+            ),
           ),
         ),
         // 검색 화면과 같은 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
@@ -52,6 +82,10 @@ class _Screen5HomeState extends State<Screen5Home> {
             child: SearchBoxField(key: _searchBoxKey, enabled: false),
           ),
         ),
+        _faded(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
         GestureDetector(
           onTap: () => s.go(4),
           child: Container(
@@ -146,6 +180,9 @@ class _Screen5HomeState extends State<Screen5Home> {
           itemBuilder: (_, i) => PhotoTile(
             item: shown[i],
             onTap: () => s.openMemory(shown[i].id),
+          ),
+        ),
+            ],
           ),
         ),
       ],
@@ -1067,7 +1104,9 @@ class _Screen13SearchState extends State<Screen13Search>
   late final AnimationController _enter = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 560),
+    reverseDuration: const Duration(milliseconds: 500),
   );
+  bool _leaving = false;
   late final Animation<double> _boxMove = CurvedAnimation(
     parent: _enter,
     curve: const Interval(0, 0.8, curve: Curves.easeInOutCubic),
@@ -1109,6 +1148,28 @@ class _Screen13SearchState extends State<Screen13Search>
     });
   }
 
+  /// 뒤로가기: 제목·결과가 먼저 사라지고 검색창이 홈의 제자리로 스르르 올라간 뒤 홈으로.
+  Future<void> _back() async {
+    final s = widget.state;
+    if (_leaving) return;
+    final target = s.homeSearchBoxTop;
+    final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
+    if (target == null ||
+        box == null ||
+        !box.hasSize ||
+        MediaQuery.of(context).disableAnimations) {
+      return s.go(5);
+    }
+    _leaving = true;
+    _focus.unfocus();
+    // 현재 이동량을 뺀 '제자리' 위치 기준으로 목표까지의 거리를 잡는다
+    final rest =
+        box.localToGlobal(Offset.zero).dy - _fromDy * (1 - _boxMove.value);
+    setState(() => _fromDy = target - rest);
+    await _enter.reverse(from: _enter.value);
+    if (mounted) s.returnHomeFromSearch();
+  }
+
   @override
   void dispose() {
     _enter.dispose();
@@ -1141,7 +1202,7 @@ class _Screen13SearchState extends State<Screen13Search>
         _revealed(
           SnapbackTopBar(
             title: '검색',
-            onBack: () => s.go(5),
+            onBack: _back,
             trailing: SnapChip(label: s.aiStatusText),
           ),
         ),
