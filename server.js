@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 const KEY = process.env.OPENAI_API_KEY;
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const PORT = process.env.PORT || 3000;
-const PUB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const FLUTTER_WEB = path.join(ROOT, 'flutter_app', 'build', 'web');
+const PUB = fs.existsSync(path.join(FLUTTER_WEB, 'index.html')) ? FLUTTER_WEB : path.join(ROOT, 'public');
 if (!KEY) { console.error('OPENAI_API_KEY 가 없어요. .env 파일을 확인하세요.'); process.exit(1); }
 // 키 모양만 확인 (키 내용은 절대 출력하지 않음)
 const KEY_OK = /^sk-[\w-]{20,}$/.test(KEY);
@@ -52,10 +54,30 @@ const hits = new Map(); // IP당 분당 30회 제한
 const limited = ip => { const n = Date.now(), a = (hits.get(ip) || []).filter(t => n - t < 60000); a.push(n); hits.set(ip, a); return a.length > 30; };
 const body = req => new Promise((ok, no) => { let b = ''; req.on('data', c => { b += c; if (b.length > 6e6) { no(new Error('too big')); req.destroy(); } }); req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch (e) { no(e); } }); });
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' };
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
 
 http.createServer(async (req, res) => {
   try {
+    if (req.url.startsWith('/api/')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+    }
     if (req.method === 'GET' && req.url === '/api/health') return send(res, 200, { ok: true, key: KEY_OK, model: MODEL });
     if (req.method === 'POST' && req.url.startsWith('/api/')) {
       if (limited(req.socket.remoteAddress)) return send(res, 429, { error: 'rate_limited' });
