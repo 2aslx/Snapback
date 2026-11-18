@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
@@ -538,7 +538,7 @@ class Screen10MemoryDetail extends StatelessWidget {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: list.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 6),
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
           itemBuilder: (_, i) => PhotoTile(
             item: list[i],
             width: 80,
@@ -1066,39 +1066,142 @@ class _Screen13SearchState extends State<Screen13Search> {
             ),
           )
         else if (s.searchResults.isNotEmpty) ...[
-          ...s.searchResults.map((x) {
-            final d = byId[x.id];
-            if (d == null) return const SizedBox.shrink();
-            final bytes = decodeDataUrl(d.thumbDataUrl);
-            final matched =
-                x.matched.isNotEmpty ? '✔ ${x.matched.join(' ✔ ')}' : '';
-            final missing =
-                x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : '';
-            return SnapRowCard(
-              leading: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: c.soft,
-                  borderRadius: BorderRadius.circular(11),
-                  image: bytes != null
-                      ? DecorationImage(
-                          image: MemoryImage(bytes),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
+          ...() {
+            final valid = s.searchResults
+                .where((x) => byId.containsKey(x.id))
+                .toList()
+              ..sort((a, b) => b.score.compareTo(a.score));
+            if (valid.isEmpty) return <Widget>[];
+            final top = valid.first;
+            final topPhoto = byId[top.id]!;
+            final topBytes = decodeDataUrl(topPhoto.thumbDataUrl);
+            final topMatched =
+                top.matched.isNotEmpty ? '✔ ${top.matched.join(' ✔ ')}' : '';
+            final topMissing =
+                top.missing.isNotEmpty ? ' · ? ${top.missing.join(', ')}' : '';
+            final rest = valid.skip(1).toList();
+
+            return <Widget>[
+              GestureDetector(
+                onTap: () => s.openMemory(topPhoto.id),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 220,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: topBytes == null
+                            ? kTileGradients[
+                                topPhoto.id % kTileGradients.length]
+                            : null,
+                        image: topBytes != null
+                            ? DecorationImage(
+                                image: MemoryImage(topBytes),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: topBytes == null
+                          ? Text(
+                              topPhoto.emoji,
+                              style: const TextStyle(fontSize: 64),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: c.soft,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Text(
+                            '일치 확률 ${top.score}%',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: c.pri,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${topPhoto.place} · ${topPhoto.date}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: c.ink,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (topMatched.isNotEmpty || topMissing.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '$topMatched$topMissing',
+                        style: TextStyle(fontSize: 12, color: c.mute),
+                      ),
+                    ],
+                  ],
                 ),
-                alignment: Alignment.center,
-                child: bytes == null
-                    ? Text(d.emoji, style: const TextStyle(fontSize: 18))
-                    : null,
               ),
-              title: '${d.place} · ${d.date}',
-              subtitle: '$matched$missing',
-              trailingText: '${x.score}%',
-              onTap: () => s.openMemory(d.id),
-            );
-          }),
+              if (rest.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  '다음으로 확률이 높은 사진',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: c.mute,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                ...rest.map((x) {
+                  final d = byId[x.id]!;
+                  final bytes = decodeDataUrl(d.thumbDataUrl);
+                  final matched =
+                      x.matched.isNotEmpty ? '✔ ${x.matched.join(' ✔ ')}' : '';
+                  final missing =
+                      x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : '';
+                  return SnapRowCard(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: c.soft,
+                        borderRadius: BorderRadius.circular(11),
+                        image: bytes != null
+                            ? DecorationImage(
+                                image: MemoryImage(bytes),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: bytes == null
+                          ? Text(d.emoji, style: const TextStyle(fontSize: 18))
+                          : null,
+                    ),
+                    title: '${d.place} · ${d.date}',
+                    subtitle: '$matched$missing',
+                    trailingText: '${x.score}%',
+                    onTap: () => s.openMemory(d.id),
+                  );
+                }),
+              ],
+            ];
+          }(),
           if (s.activeQuestion != null) ...[
             const SizedBox(height: 6),
             _Bubble(text: s.activeQuestion!.text, isMe: false),
@@ -1226,7 +1329,7 @@ class _Screen14UsabilityTestState extends State<Screen14UsabilityTest> {
               const SizedBox(width: 7),
               _StatBox(value: '$hitCount/$n', label: '찾음'),
               const SizedBox(width: 7),
-              _StatBox(value: '${avgSec}초', label: '평균 시간'),
+              _StatBox(value: '$avgSec초', label: '평균 시간'),
             ],
           ),
           ...logs.map(

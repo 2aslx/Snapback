@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'screens/main_screens.dart';
 import 'screens/onboarding_screens.dart';
 import 'state/app_state.dart';

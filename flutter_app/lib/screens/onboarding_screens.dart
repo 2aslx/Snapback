@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -382,7 +382,7 @@ class _Screen4ProgressState extends State<Screen4Progress>
                   ),
                   AnimatedBuilder(
                     animation: _anim,
-                    builder: (_, __) {
+                    builder: (_, _) {
                       final bob =
                           (!paused && s.analysisRunning) ? -4 * _anim.value : 0.0;
                       return Positioned(

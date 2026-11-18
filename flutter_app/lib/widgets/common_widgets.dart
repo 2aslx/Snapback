@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../models/photo_item.dart';
 import '../theme/app_theme.dart';
 
@@ -112,7 +112,7 @@ class SnapbackTopBar extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        if (trailing != null) trailing!,
+        ?trailing,
       ],
     );
   }
@@ -220,7 +220,7 @@ class SnapOptionCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (trailing != null) trailing!,
+            ?trailing,
           ],
         ),
       ),
