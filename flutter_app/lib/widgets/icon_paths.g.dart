@@ -42,6 +42,9 @@ const Map<String, String> kIconPaths = {
   'check': '<path d="M5 12l4 4 10-10"/>',
   'alert': '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
   'arrow': '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  // 뒤로가기 (Flutter 추가)
+  'back': '<path d="M15 4.5L7.5 12l7.5 7.5"/>',
+  'close': '<path d="M6 6l12 12M18 6L6 18"/>',
   'cake': '<path d="M4 19h16v-7L4 9zM4 9l13-4 3 7M4 14h16"/>',
   'bread': '<path d="M5 11a4 4 0 0 1 3-6h8a4 4 0 0 1 3 6v8H5z"/><path d="M9 9v2M13 9v2"/>',
   'bowl': '<path d="M3 11h18a9 9 0 0 1-18 0zM8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4M9 20h6"/>',

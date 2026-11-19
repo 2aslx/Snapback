@@ -57,9 +57,9 @@ class _Screen5HomeState extends State<Screen5Home>
   }
 
   Widget _faded(Widget child) => FadeTransition(
-        opacity: CurvedAnimation(parent: _reveal, curve: Curves.easeOut),
-        child: child,
-      );
+    opacity: CurvedAnimation(parent: _reveal, curve: Curves.easeOut),
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -161,9 +161,18 @@ class _Screen6FoodCategoryState extends State<Screen6FoodCategory> {
   String _chip = '전체';
   static const _labels = ['전체', '디저트', '면', '커피', '술'];
   static const _food = [
-    ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'), ('glass', '술'),
-    ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'), ('glass', '술'),
-    ('bread', '디저트'), ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
+    ('glass', '술'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
+    ('glass', '술'),
+    ('bread', '디저트'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
   ];
 
   @override
@@ -285,11 +294,7 @@ class Screen7PhotoInfo extends StatelessWidget {
             ),
           ],
         ),
-        SnapButton(
-          label: '이 사진의 기억 보기',
-          ghost: true,
-          onTap: () => s.go(10),
-        ),
+        SnapButton(label: '이 사진의 기억 보기', ghost: true, onTap: () => s.go(10)),
       ],
     );
   }
@@ -507,7 +512,10 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         '촬영 장소',
         join([
           item.place,
-          if (item.gps != null && item.gps!.length >= 2)
+          // 구글 지도 기준 지역명 (못 받으면 좌표)
+          if (s.placeNameFor(item) case final name?)
+            name
+          else if (item.gps != null && item.gps!.length >= 2)
             '${item.gps![0].toStringAsFixed(3)}, ${item.gps![1].toStringAsFixed(3)}',
         ]),
       ),
@@ -530,9 +538,7 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         SnapbackTopBar(
           title: item.place.isEmpty ? '사진' : item.place,
           onBack: () {
-            if (!s.backFromRelated()) {
-              s.go(s.searchResults.isNotEmpty ? 13 : 5);
-            }
+            if (!s.backFromRelated()) s.go(s.detailReturn);
           },
           trailing: Text(item.date),
         ),
@@ -575,6 +581,109 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
   }
 }
 
+/// ⑤′ 기억 탭 — 지금까지 검색으로 찾은 사진들을 갤러리로. 누르면 사진 상세(관련된 추억 등).
+class Screen19Memories extends StatefulWidget {
+  const Screen19Memories({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  State<Screen19Memories> createState() => _Screen19MemoriesState();
+}
+
+class _Screen19MemoriesState extends State<Screen19Memories> {
+  bool _editing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final photos = s.foundPhotos;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LargeTitle(
+          title: '기억',
+          actions: [
+            if (photos.isNotEmpty)
+              Pressable(
+                onTap: () => setState(() => _editing = !_editing),
+                child: Text(
+                  _editing ? '완료' : '편집',
+                  style: TextStyle(fontSize: 17, color: c.pk),
+                ),
+              ),
+          ],
+        ),
+        if (photos.isEmpty) ...[
+          const SnapEmpty(
+            icon: 'heart',
+            text: '아직 찾은 사진이 없어요.\n사진 탭에서 기억나는 장면을 말해 보세요.',
+          ),
+          SnapButton(label: '기억으로 찾기', icon: 'search', onTap: () => s.go(13)),
+        ] else ...[
+          SnapSub(
+            _editing
+                ? '기록에서 뺄 사진을 누르세요 · 사진은 지워지지 않아요'
+                : '검색으로 찾은 사진 ${photos.length}장 · 최근에 찾은 순',
+          ),
+          const SizedBox(height: 12),
+          if (_editing)
+            Bleed(
+              child: GridView.builder(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 2,
+                  crossAxisSpacing: 2,
+                ),
+                itemCount: photos.length,
+                itemBuilder: (_, i) => GestureDetector(
+                  onTap: () => s.forgetFound(photos[i].id),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Opacity(
+                        opacity: 0.7,
+                        child: PhotoTile(
+                          item: photos[i],
+                          radius: 0,
+                          showDate: false,
+                        ),
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: c.pri,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: const SnapIcon(
+                            'close',
+                            size: 13,
+                            color: Colors.white,
+                            strokeWidth: 2.6,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
+        ],
+      ],
+    );
+  }
+}
+
 /// 관련된 추억 앨범 — 사진 상세에서 연 가상 앨범(그날의 사진 / 비슷한 분위기)의 전체 사진.
 /// 갤러리에 실제 앨범을 만들지 않고 앱 안에서만 묶어 보여준다.
 class Screen18RelatedAlbum extends StatelessWidget {
@@ -607,11 +716,17 @@ class Screen18RelatedAlbum extends StatelessWidget {
       int key(PhotoItem x) => x.takenAtMs ?? x.id;
       photos = [...photos]..sort((a, b) => key(a).compareTo(key(b)));
     }
-    final where = base.place.isEmpty || base.place == '알 수 없음' ? '' : ' · ${base.place}';
+    final where = base.place.isEmpty || base.place == '알 수 없음'
+        ? ''
+        : ' · ${base.place}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: title, onBack: back, trailing: Text('${photos.length}장')),
+        SnapbackTopBar(
+          title: title,
+          onBack: back,
+          trailing: Text('${photos.length}장'),
+        ),
         SnapSub(
           sameDay
               ? '${base.date}$where에서 함께 찍은 사진 ${photos.length}장'
@@ -639,10 +754,7 @@ class Screen11Albums extends StatefulWidget {
 
 class _Screen11AlbumsState extends State<Screen11Albums> {
   final _req = TextEditingController();
-  static const _examples = [
-    '올여름 친구들과 함께했던 순간들',
-    '저장해 둔 네일 디자인 사진만 모아줘',
-  ];
+  static const _examples = ['올여름 친구들과 함께했던 순간들', '저장해 둔 네일 디자인 사진만 모아줘'];
   bool _confirmRemove = false;
 
   @override
@@ -715,8 +827,7 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
                     ),
                 ],
               ),
-              if (s.albumBusy)
-                const SnapNote('어울리는 사진을 모으는 중…'),
+              if (s.albumBusy) const SnapNote('어울리는 사진을 모으는 중…'),
               if (s.albumError != null && !s.albumBusy)
                 SnapNote(
                   s.albumError!,
@@ -765,7 +876,8 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
         else if (shown.isEmpty)
           SnapEmpty(
             icon: 'stack',
-            text: "'${filterCat?.label ?? ''}' 카테고리에 앨범이 없어요.\n앨범을 열어 카테고리를 바꿀 수 있어요.",
+            text:
+                "'${filterCat?.label ?? ''}' 카테고리에 앨범이 없어요.\n앨범을 열어 카테고리를 바꿀 수 있어요.",
           )
         else
           AlbumCardGrid(
@@ -905,8 +1017,9 @@ class Screen17AlbumPreview extends StatefulWidget {
 }
 
 class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
-  late final _title =
-      TextEditingController(text: widget.state.albumDraft?.title ?? '');
+  late final _title = TextEditingController(
+    text: widget.state.albumDraft?.title ?? '',
+  );
 
   /// 처음 받은 AI 추천 카테고리 (사용자가 바꿔도 표시용으로 유지)
   late final String? _aiCategory = widget.state.albumDraft?.category;
@@ -1015,7 +1128,12 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
                       ),
                       alignment: Alignment.center,
                       child: on
-                          ? const SnapIcon('check', size: 12, color: Colors.white, strokeWidth: 2.6)
+                          ? const SnapIcon(
+                              'check',
+                              size: 12,
+                              color: Colors.white,
+                              strokeWidth: 2.6,
+                            )
                           : null,
                     ),
                   ),
@@ -1249,16 +1367,16 @@ class _Screen13SearchState extends State<Screen13Search>
   }
 
   Widget _revealed(Widget child, {double rise = 0}) => AnimatedBuilder(
-        animation: _reveal,
-        builder: (_, w) => Opacity(
-          opacity: _reveal.value,
-          child: Transform.translate(
-            offset: Offset(0, rise * (1 - _reveal.value)),
-            child: w,
-          ),
-        ),
-        child: child,
-      );
+    animation: _reveal,
+    builder: (_, w) => Opacity(
+      opacity: _reveal.value,
+      child: Transform.translate(
+        offset: Offset(0, rise * (1 - _reveal.value)),
+        child: w,
+      ),
+    ),
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1267,13 +1385,7 @@ class _Screen13SearchState extends State<Screen13Search>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _revealed(
-          SnapbackTopBar(
-            title: '기억으로 찾기',
-            onBack: _back,
-            trailing: Text(s.aiStatusText),
-          ),
-        ),
+        _revealed(SnapbackTopBar(title: '기억으로 찾기', onBack: _back)),
         _revealed(rise: 10, const SnapH2('어떤 사진을\n찾고 계시나요?')),
         Padding(
           padding: const EdgeInsets.only(top: 6, bottom: 12),
@@ -1367,7 +1479,10 @@ class _Screen13SearchState extends State<Screen13Search>
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: c.soft,
                   borderRadius: BorderRadius.circular(99),
@@ -1400,7 +1515,10 @@ class _Screen13SearchState extends State<Screen13Search>
           if (clues(top).isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(clues(top), style: TextStyle(fontSize: 13, color: c.mute)),
+              child: Text(
+                clues(top),
+                style: TextStyle(fontSize: 13, color: c.mute),
+              ),
             ),
           // [맞아요] / [질문 한 번 더하기]
           if (!s.questionShown)
@@ -1505,10 +1623,9 @@ class _Screen14UsabilityTestState extends State<Screen14UsabilityTest> {
     final s = widget.state;
     final c = context.sc;
     final vis = s.visiblePhotos;
-    final current =
-        (_selectedId != null && vis.any((d) => d.id == _selectedId))
-            ? _selectedId!
-            : (vis.isNotEmpty ? vis.first.id : 1);
+    final current = (_selectedId != null && vis.any((d) => d.id == _selectedId))
+        ? _selectedId!
+        : (vis.isNotEmpty ? vis.first.id : 1);
     final logs = s.testLogs;
     final n = logs.length;
 
@@ -1571,7 +1688,8 @@ class _Screen14UsabilityTestState extends State<Screen14UsabilityTest> {
               for (final x in logs)
                 SnapRow(
                   title: '#${x.id}',
-                  subtitle: '${(x.ms / 1000).round()}초 · 질문 ${x.questions}회 · '
+                  subtitle:
+                      '${(x.ms / 1000).round()}초 · 질문 ${x.questions}회 · '
                       '첫 순위 ${x.firstRank > 0 ? x.firstRank : '밖'} · '
                       '${x.hit ? '✓ 찾음' : '✕ 못 찾음'}',
                 ),
@@ -1646,7 +1764,10 @@ class _Screen15ModeState extends State<Screen15Mode> {
               TextSpan(
                 children: [
                   TextSpan(text: '${k.substring(0, 4)}.${k.substring(5)} '),
-                  TextSpan(text: _age(k), style: TextStyle(color: c.pk)),
+                  TextSpan(
+                    text: _age(k),
+                    style: TextStyle(color: c.pk),
+                  ),
                 ],
               ),
               style: TextStyle(
@@ -1664,9 +1785,13 @@ class _Screen15ModeState extends State<Screen15Mode> {
       final q = _query.text;
       final list = vis
           .where(
-            (d) => [d.place, d.background, d.caption, ...d.food, d.weather]
-                .join(' ')
-                .contains(q),
+            (d) => [
+              d.place,
+              d.background,
+              d.caption,
+              ...d.food,
+              d.weather,
+            ].join(' ').contains(q),
           )
           .toList();
       children.addAll([
@@ -1764,10 +1889,7 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
         ),
         const SizedBox(height: 14),
         if (photos.isEmpty)
-          const SnapEmpty(
-            icon: 'image',
-            text: '이 앨범의 사진이 삭제되었거나\n숨김 처리되었어요',
-          )
+          const SnapEmpty(icon: 'image', text: '이 앨범의 사진이 삭제되었거나\n숨김 처리되었어요')
         else
           PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
         SnapButton(

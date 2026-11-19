@@ -87,31 +87,51 @@ class Screen1Scope extends StatelessWidget {
               '전체 사진',
               s.useLibrary ? '${s.libraryCount}장' : '3,420장',
             ),
-            opt(1, 'folder', '앨범 선택', '원하는 앨범만'),
+            opt(
+              1,
+              'folder',
+              '앨범 선택',
+              s.useLibrary && s.selectedAlbumIds.isNotEmpty
+                  ? '앨범 ${s.selectedAlbumIds.length}개 · ${s.selectedAlbumPhotoCount}장'
+                  : '원하는 앨범만',
+            ),
             opt(2, 'select', '사진 직접 고르기', '눌러서 하나씩 선택', 2),
             opt(3, 'calendar', '기간 지정', '2022.01 ~ 지금'),
           ],
         ),
-        // iOS: '앨범 선택'이면 사진 보관함의 앨범 목록
-        if (s.useLibrary &&
-            s.scopeSelection == 1 &&
-            s.libraryAlbums.isNotEmpty) ...[
-          const SnapH3('앨범', small: true),
-          SnapGroup(
-            top: 0,
-            separatorInset: 14,
-            children: [
-              for (final a in s.libraryAlbums)
-                SnapRow(
-                  title: a.name,
-                  checked: s.selectedAlbumId == a.id,
-                  onTap: () {
-                    s.selectedAlbumId = a.id;
-                    s.touch();
-                  },
-                ),
-            ],
-          ),
+        // iOS: '앨범 선택'이면 기기 사진 보관함의 실제 앨범 목록 (여러 개 선택)
+        if (s.useLibrary && s.scopeSelection == 1) ...[
+          const SnapH3('분석할 앨범을 골라 주세요 · 여러 개 선택 가능', small: true),
+          if (s.libraryAlbumsLoading && s.libraryAlbums.isEmpty)
+            const SnapNote('앨범을 불러오는 중…', top: 0)
+          else if (s.libraryAlbums.isEmpty)
+            const SnapNote('사진이 들어 있는 앨범이 없어요', top: 0)
+          else
+            SnapGroup(
+              top: 0,
+              separatorInset: 58,
+              children: [
+                for (final a in s.libraryAlbums)
+                  SnapRow(
+                    leading: IconBadge(
+                      'folder',
+                      size: 40,
+                      radius: 8,
+                      image: a.cover == null
+                          ? null
+                          : AssetEntityImageProvider(
+                              a.cover!,
+                              isOriginal: false,
+                              thumbnailSize: const ThumbnailSize.square(160),
+                            ),
+                    ),
+                    title: a.path.name,
+                    subtitle: '${a.count}장',
+                    checked: s.selectedAlbumIds.contains(a.path.id),
+                    onTap: () => s.toggleLibraryAlbum(a.path.id),
+                  ),
+              ],
+            ),
         ],
         if (s.libraryDenied) ...[
           const SnapWarn('사진 보관함 접근이 허용되지 않았어요. 설정에서 사진 접근을 허용해 주세요.'),
@@ -121,7 +141,10 @@ class Screen1Scope extends StatelessWidget {
             s.libraryPermission?.isAuth == false &&
             !s.libraryDenied)
           SnapNote('일부 사진만 허용됨 · 허용한 사진 안에서 분석해요', color: c.mute),
-        SnapButton(label: '다음', onTap: () => s.go(3)),
+        if (s.useLibrary && s.scopeSelection == 1 && s.selectedAlbumIds.isEmpty)
+          const SnapButton(label: '앨범을 하나 이상 골라 주세요', onTap: null)
+        else
+          SnapButton(label: '다음', onTap: () => s.go(3)),
       ],
     );
   }

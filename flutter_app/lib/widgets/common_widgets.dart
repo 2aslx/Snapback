@@ -62,7 +62,12 @@ class SnapIcon extends StatelessWidget {
 
 /// 누르면 opacity .6 (.btn:active, .chip:active, .row:active …)
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, this.onTap, this.onLongPress});
+  const Pressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+  });
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
@@ -113,7 +118,7 @@ class Bleed extends StatelessWidget {
   );
 }
 
-/// .top — 가운데 제목(17/600) + 왼쪽 ‹ 뒤로 + 오른쪽 보조 텍스트
+/// .top — 가운데 제목(17/600) + 왼쪽 뒤로가기(< 아이콘) + 오른쪽 보조 텍스트
 class SnapbackTopBar extends StatelessWidget {
   const SnapbackTopBar({
     super.key,
@@ -170,25 +175,24 @@ class SnapbackTopBar extends StatelessWidget {
                   ],
                 ),
               ),
+              // 뒤로가기: 아이콘 주변까지 넓게 눌리도록 72 × 막대 높이 전체를 터치 영역으로
               if (onBack != null)
                 Positioned(
-                  left: -6,
+                  left: -8,
                   top: 0,
                   bottom: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
+                  width: 72,
+                  child: Pressable(
                     onTap: onBack,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 0, 12, 4),
-                      child: Center(
-                        child: Text(
-                          '‹',
-                          style: TextStyle(
-                            fontSize: 36,
-                            height: 1,
-                            fontWeight: FontWeight.w300,
-                            color: c.pk,
-                          ),
+                    child: Align(
+                      alignment: const Alignment(-1, 0.25),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: SnapIcon(
+                          'back',
+                          size: 26,
+                          color: c.pk,
+                          strokeWidth: 2.2,
                         ),
                       ),
                     ),
@@ -414,35 +418,38 @@ class SnapButton extends StatelessWidget {
       padding: EdgeInsets.only(top: top),
       child: Pressable(
         onTap: onTap ?? () {},
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 50),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: ghost ? c.fill : c.pri,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                SnapIcon(icon!, size: 19.5, color: fg),
-                const SizedBox(width: 4),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.3,
-                    color: fg,
+        child: Opacity(
+          opacity: onTap == null ? 0.45 : 1, // 누를 수 없는 상태는 흐리게
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 50),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: ghost ? c.fill : c.pri,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  SnapIcon(icon!, size: 19.5, color: fg),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                      color: fg,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

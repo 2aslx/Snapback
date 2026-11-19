@@ -62,7 +62,7 @@ class _SnapbackShell extends StatelessWidget {
   final SnapbackState state;
 
   // .scr.tb — 하단 탭바가 보이는 화면
-  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18};
+  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19};
 
   Widget _buildScreen() {
     switch (state.screen) {
@@ -104,6 +104,8 @@ class _SnapbackShell extends StatelessWidget {
         return Screen17AlbumPreview(state: state);
       case 18:
         return Screen18RelatedAlbum(state: state);
+      case 19:
+        return Screen19Memories(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -112,6 +114,8 @@ class _SnapbackShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
+    // 저장된 설정을 읽기 전에는 배경만 (초기 설정을 마친 사람에게 시작 안내가 깜빡이지 않게)
+    if (!state.ready) return Scaffold(backgroundColor: c.bg);
     final showTabs = _tabScreens.contains(state.screen);
     final reduce = MediaQuery.of(context).disableAnimations;
     final bottomInset = MediaQuery.of(context).padding.bottom;
@@ -196,7 +200,7 @@ class _BottomTabBar extends StatelessWidget {
 
   static const _tabs = [
     (5, 'image', '사진'),
-    (10, 'heart', '기억'),
+    (19, 'heart', '기억'),
     (11, 'stack', '앨범'),
   ];
 
@@ -220,7 +224,7 @@ class _BottomTabBar extends StatelessWidget {
             children: _tabs.map((t) {
               final active =
                   state.screen == t.$1 ||
-                  (t.$1 == 10 && state.screen == 18) ||
+                  (t.$1 == 19 && (state.screen == 10 || state.screen == 18)) ||
                   (t.$1 == 11 && (state.screen == 16 || state.screen == 17));
               final col = active ? c.pri : c.tabMute;
               return Expanded(

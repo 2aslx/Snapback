@@ -8,7 +8,8 @@ const key = () => process.env.OPENAI_API_KEY || '';
 export const keyOk = () => /^sk-[\w-]{20,}$/.test(key());
 
 const fail = c => Object.assign(new Error(c), { code: c });          // 클라이언트로 보낼 오류 코드
-const hide = s => String(s).replace(/sk-[\w\-*.]+/g, 'sk-***');     // 로그에 키가 섞여도 가림
+const hide = s => String(s).replace(/sk-[\w\-*.]+/g, 'sk-***').replace(/AIza[\w-]+/g, 'AIza***'); // 로그에 키가 섞여도 가림
+const mapsKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
 
 // OpenAI Responses API 호출 → JSON 객체로 반환
 async function ask(content) {
@@ -122,9 +123,33 @@ async function album(b) {
   return [200, { title, ids, category }];
 }
 
-const POST_ROUTES = { analyze, search, album };
+// 사진 GPS 좌표 → 구글 지도 기준 지역명 (예: "서울특별시 성동구 성수동2가")
+// 키는 서버 환경변수 GOOGLE_MAPS_API_KEY 에만 둔다.
+const PLACE_TYPES = ['administrative_area_level_1', 'locality', 'sublocality_level_1', 'sublocality_level_2'];
+async function place(b) {
+  const lat = Number(b.lat), lng = Number(b.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return [400, { error: 'bad_request' }];
+  if (!mapsKey()) return [503, { error: 'no_maps_key' }];
+  const url = 'https://maps.googleapis.com/maps/api/geocode/json?language=ko&latlng=' + lat.toFixed(6) + ',' + lng.toFixed(6) + '&key=' + encodeURIComponent(mapsKey());
+  let r;
+  try { r = await fetch(url, { signal: AbortSignal.timeout(10000) }); } catch (e) { throw fail(e.name === 'TimeoutError' ? 'timeout' : 'maps_unreachable'); }
+  const j = await r.json().catch(() => ({}));
+  if (j.status === 'ZERO_RESULTS') return [200, { name: null }];
+  if (j.status !== 'OK') { console.error('Google 지오코딩 오류', j.status, hide(j.error_message || '')); throw fail('maps_' + String(j.status || r.status).toLowerCase()); }
+  // 첫 결과의 주소 구성요소에서 시·도 → 시·군·구 → 동 순서로 (중복 제외)
+  const comps = j.results?.[0]?.address_components || [];
+  const parts = [];
+  for (const t of PLACE_TYPES) {
+    const c = comps.find(c => c.types?.includes(t));
+    if (c && !parts.includes(c.long_name)) parts.push(c.long_name);
+  }
+  const name = parts.join(' ') || String(j.results?.[0]?.formatted_address || '').replace(/^대한민국\s*/, '') || null;
+  return [200, { name }];
+}
 
-// route: 'health' | 'analyze' | 'search' | 'album' (그 외는 404)
+const POST_ROUTES = { analyze, search, album, place };
+
+// route: 'health' | 'analyze' | 'search' | 'album' | 'place' (그 외는 404)
 export async function handleApi(req, res, route) {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -133,7 +158,7 @@ export async function handleApi(req, res, route) {
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
     if (route === 'health') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' });
-      return send(res, 200, { ok: true, key: keyOk(), model: MODEL });
+      return send(res, 200, { ok: true, key: keyOk(), model: MODEL, maps: !!mapsKey() });
     }
     const fn = POST_ROUTES[route];
     if (!fn) return send(res, 404, { error: 'not_found' });

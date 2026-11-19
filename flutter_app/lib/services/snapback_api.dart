@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
 import '../models/photo_item.dart';
 
 class ApiException implements Exception {
@@ -108,7 +110,8 @@ class SnapbackApi {
     } catch (_) {}
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      final code = data['error']?.toString() ??
+      final code =
+          data['error']?.toString() ??
           (res.statusCode == 429 ? 'rate_limited' : 'http_${res.statusCode}');
       throw ApiException(code);
     }
@@ -135,7 +138,8 @@ class SnapbackApi {
         .map(SearchRankedItem.fromJson)
         .toList();
     final qRaw = data['question'];
-    final question = qRaw is Map<String, dynamic> &&
+    final question =
+        qRaw is Map<String, dynamic> &&
             (qRaw['options'] as List?)?.isNotEmpty == true
         ? SearchQuestion.fromJson(qRaw)
         : null;
@@ -164,5 +168,12 @@ class SnapbackApi {
       ids,
       cat is String && cat.isNotEmpty ? cat : null,
     );
+  }
+
+  /// GPS 좌표 → 구글 지도 기준 지역명. 서버에 지도 키가 없으면 ApiException('no_maps_key').
+  Future<String?> placeName(double lat, double lng) async {
+    final data = await _post('/api/place', {'lat': lat, 'lng': lng});
+    final n = data['name'];
+    return n is String && n.trim().isNotEmpty ? n.trim() : null;
   }
 }
