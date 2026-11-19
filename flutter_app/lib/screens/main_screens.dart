@@ -1152,6 +1152,17 @@ class Screen13Search extends StatefulWidget {
 
 class _Screen13SearchState extends State<Screen13Search>
     with SingleTickerProviderStateMixin {
+  /// AI 질문에 보기 대신 직접 적는 답
+  final _answer = TextEditingController();
+
+  void _sendAnswer() {
+    final t = _answer.text.trim();
+    if (t.isEmpty || widget.state.searchBusy) return;
+    _answer.clear();
+    FocusScope.of(context).unfocus();
+    widget.state.answerFollowUp(t.length > 200 ? t.substring(0, 200) : t);
+  }
+
   late final _ctrl = TextEditingController(
     text: widget.state.searchHistory.isNotEmpty
         ? widget.state.searchHistory.first
@@ -1233,6 +1244,7 @@ class _Screen13SearchState extends State<Screen13Search>
     _enter.dispose();
     _focus.dispose();
     _ctrl.dispose();
+    _answer.dispose();
     super.dispose();
   }
 
@@ -1427,6 +1439,15 @@ class _Screen13SearchState extends State<Screen13Search>
                   onTap: () => s.answerFollowUp('기억 안 나요'),
                 ),
               ],
+            ),
+            // 보기에 맞는 답이 없을 때: 직접 입력 (답 또는 새로 떠오른 단서)
+            const SizedBox(height: 10),
+            SnapSearchBar(
+              controller: _answer,
+              showIcon: false,
+              hint: '직접 입력하기 (예: 창가 자리였어요)',
+              busy: s.searchBusy,
+              onSubmit: _sendAnswer,
             ),
           ] else ...[
             const SnapNote('더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.'),
