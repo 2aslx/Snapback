@@ -1167,7 +1167,9 @@ class SnapEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
-    return Padding(
+    // 부모가 왼쪽 정렬이어도 항상 가로 전체를 차지해 가운데 정렬 (.empty)
+    return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 40),
       child: Column(
         children: [

@@ -19,7 +19,8 @@ async function ask(content) {
     r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key() },
-      body: JSON.stringify({ model: MODEL, input: [{ role: 'user', content }], text: { format: { type: 'json_object' } } }),
+      // store:false — OpenAI 에 요청·응답을 저장하지 않는다 (사진 정보가 남지 않고, 동시 요청도 막히지 않음)
+      body: JSON.stringify({ model: MODEL, input: [{ role: 'user', content }], text: { format: { type: 'json_object' } }, store: false }),
       signal: AbortSignal.timeout(60000), // 60초 넘으면 중단
     });
   } catch (e) { throw fail(e.name === 'TimeoutError' ? 'timeout' : 'openai_unreachable'); }
