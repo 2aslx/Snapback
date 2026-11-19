@@ -453,7 +453,7 @@ class Screen9PrototypeResults extends StatelessWidget {
   }
 }
 
-/// ⑤ 사진 상세 — 찾은 사진(크게) → 같은 날 → 비슷한 분위기 → 사진 정보(펼치기)
+/// ⑤ 사진 상세 — 찾은 사진(크게) → 관련된 추억(앨범 2개) → 사진 정보(펼치기)
 class Screen10MemoryDetail extends StatefulWidget {
   const Screen10MemoryDetail({super.key, required this.state});
   final SnapbackState state;
@@ -479,17 +479,24 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       _infoOpen = false;
     }
     final rel = s.relatedFor(item);
-
-    Widget strip(String icon, String title, List<PhotoItem> list) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SnapH3(title, icon: icon, trailing: '(${list.length})'),
-            if (list.isEmpty)
-              const SnapNote('없어요', top: 0)
-            else
-              PhotoStrip(items: list, onTap: (d) => s.openMemory(d.id)),
-          ],
-        );
+    // 관련 사진을 가상 앨범으로 묶어 대표사진 1장만 보여준다. 사진이 없는 앨범은 숨김.
+    final relatedCards = <Widget>[
+      if (SnapbackState.closestInTime(item, rel.sameDay) case final cover?)
+        AlbumCard(
+          cover: cover,
+          title: '그날의 사진',
+          count: rel.sameDay.length,
+          onTap: () => s.openRelatedAlbum(0),
+        ),
+      // similarMood 는 유사도 높은 순 → 첫 번째가 대표
+      if (rel.similarMood.firstOrNull case final cover?)
+        AlbumCard(
+          cover: cover,
+          title: '비슷한 분위기',
+          count: rel.similarMood.length,
+          onTap: () => s.openRelatedAlbum(1),
+        ),
+    ];
 
     String join(Iterable<String> xs) =>
         xs.where((x) => x.trim().isNotEmpty && x != '알 수 없음').join(' · ');
@@ -522,12 +529,18 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       children: [
         SnapbackTopBar(
           title: item.place.isEmpty ? '사진' : item.place,
-          onBack: () => s.go(s.searchResults.isNotEmpty ? 13 : 5),
+          onBack: () {
+            if (!s.backFromRelated()) {
+              s.go(s.searchResults.isNotEmpty ? 13 : 5);
+            }
+          },
           trailing: Text(item.date),
         ),
         SnapHero(item: item),
-        strip('calendar', '같은 날 찍은 사진', rel.sameDay),
-        strip('palette', '비슷한 분위기의 사진', rel.similarMood),
+        if (relatedCards.isNotEmpty) ...[
+          const SnapH3('관련된 추억'),
+          AlbumCardGrid(children: relatedCards),
+        ],
         SnapGroup(
           top: 24,
           children: [
@@ -562,7 +575,60 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
   }
 }
 
-/// ⑥ 앨범 — 내 앨범 확인 + AI와 대화하며 새 앨범 만들기
+/// 관련된 추억 앨범 — 사진 상세에서 연 가상 앨범(그날의 사진 / 비슷한 분위기)의 전체 사진.
+/// 갤러리에 실제 앨범을 만들지 않고 앱 안에서만 묶어 보여준다.
+class Screen18RelatedAlbum extends StatelessWidget {
+  const Screen18RelatedAlbum({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final sameDay = s.relatedAlbumKind == 0;
+    final title = sameDay ? '그날의 사진' : '비슷한 분위기';
+    void back() {
+      if (!s.backFromRelated()) s.go(10);
+    }
+
+    final base = s.db.where((x) => x.id == s.relatedBaseId).firstOrNull;
+    if (base == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SnapbackTopBar(title: title, onBack: back),
+          const SnapEmpty(icon: 'image', text: '사진을 찾을 수 없어요'),
+        ],
+      );
+    }
+    final rel = s.relatedFor(base);
+    var photos = sameDay ? rel.sameDay : rel.similarMood;
+    if (sameDay) {
+      // 그날의 사진은 찍은 순서대로
+      int key(PhotoItem x) => x.takenAtMs ?? x.id;
+      photos = [...photos]..sort((a, b) => key(a).compareTo(key(b)));
+    }
+    final where = base.place.isEmpty || base.place == '알 수 없음' ? '' : ' · ${base.place}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapbackTopBar(title: title, onBack: back, trailing: Text('${photos.length}장')),
+        SnapSub(
+          sameDay
+              ? '${base.date}$where에서 함께 찍은 사진 ${photos.length}장'
+              : '이 사진과 분위기가 비슷한 사진 ${photos.length}장',
+        ),
+        const SizedBox(height: 12),
+        if (photos.isEmpty)
+          const SnapEmpty(icon: 'image', text: '이 앨범에 남은 사진이 없어요')
+        else
+          PhotoGrid(items: photos, onTap: (d) => s.openFromRelatedAlbum(d.id)),
+        const SnapNote('사진 앱에 앨범을 만들지 않고, Snapback 안에서만 묶어 보여줘요'),
+      ],
+    );
+  }
+}
+
+/// ⑥ 앨범 — 흩어진 순간 모으기(AI 앨범) + 카테고리별 내 앨범
 class Screen11Albums extends StatefulWidget {
   const Screen11Albums({super.key, required this.state});
   final SnapbackState state;
@@ -574,9 +640,10 @@ class Screen11Albums extends StatefulWidget {
 class _Screen11AlbumsState extends State<Screen11Albums> {
   final _req = TextEditingController();
   static const _examples = [
-    '올해 친구들이랑 놀러 갔던 사진 중에서 풍경이 예쁜 사진 위주로 모아줘',
-    '여행에서 음식 사진은 빼고 바다나 풍경이 나온 사진들로 앨범 만들어줘',
+    '올여름 친구들과 함께했던 순간들',
+    '저장해 둔 네일 디자인 사진만 모아줘',
   ];
+  bool _confirmRemove = false;
 
   @override
   void dispose() {
@@ -588,6 +655,8 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
   Widget build(BuildContext context) {
     final s = widget.state;
     final c = context.sc;
+    final shown = s.filteredAlbums;
+    final filterCat = s.categoryById(s.albumFilter);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -608,7 +677,7 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
                   SnapIcon('sparkle', size: 19.5, color: c.pk),
                   const SizedBox(width: 6),
                   Text(
-                    'AI로 앨범 만들기',
+                    '흩어진 순간 모으기',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
@@ -620,34 +689,34 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
               ),
               const SizedBox(height: 2),
               Text(
-                '만들고 싶은 앨범을 자세히 말해 주세요. 어울리는 사진을 모아 드려요.',
+                '흩어진 사진들을 의미 있는 하나의 앨범으로.',
                 style: TextStyle(fontSize: 13, color: c.mute),
               ),
               const SizedBox(height: 10),
               SnapSearchBar(
                 controller: _req,
                 showIcon: false,
-                hint: '예) 제주도 여행 중 바다 사진만',
+                hint: '어떤 순간을 모아볼까요?',
                 busy: s.albumBusy,
                 onSubmit: () => s.composeAlbum(_req.text),
               ),
-              const SizedBox(height: 8),
-              for (final e in _examples)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Pressable(
-                    onTap: () {
-                      _req.text = e;
-                      s.composeAlbum(e);
-                    },
-                    child: Text(
-                      '“$e”',
-                      style: TextStyle(fontSize: 13, color: c.pk),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final e in _examples)
+                    SnapChip(
+                      label: e,
+                      onTap: () {
+                        _req.text = e;
+                        s.composeAlbum(e);
+                      },
                     ),
-                  ),
-                ),
+                ],
+              ),
               if (s.albumBusy)
-                const SnapNote('AI가 어울리는 사진을 모으는 중…'),
+                const SnapNote('어울리는 사진을 모으는 중…'),
               if (s.albumError != null && !s.albumBusy)
                 SnapNote(
                   s.albumError!,
@@ -658,35 +727,168 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
           ),
         ),
         const SnapH3('내 앨범'),
+        CategoryChips(
+          state: s,
+          selected: s.albumFilter,
+          includeAll: true,
+          onSelect: (id) {
+            _confirmRemove = false;
+            s.setAlbumFilter(id);
+          },
+        ),
+        if (filterCat != null && !filterCat.builtIn)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Pressable(
+              onTap: () {
+                if (_confirmRemove) {
+                  _confirmRemove = false;
+                  s.removeCategory(filterCat.id);
+                } else {
+                  setState(() => _confirmRemove = true);
+                }
+              },
+              child: Text(
+                _confirmRemove
+                    ? '한 번 더 누르면 카테고리가 삭제돼요 (앨범은 남아요)'
+                    : "'${filterCat.label}' 카테고리 삭제",
+                style: TextStyle(fontSize: 13, color: c.mute),
+              ),
+            ),
+          ),
+        const SizedBox(height: 16),
         if (s.albums.isEmpty)
           const SnapEmpty(
             icon: 'stack',
-            text: '아직 앨범이 없어요.\n위에서 원하는 앨범을 설명해 보세요.',
+            text: '아직 앨범이 없어요.\n위에서 모아 보고 싶은 순간을 적어 보세요.',
+          )
+        else if (shown.isEmpty)
+          SnapEmpty(
+            icon: 'stack',
+            text: "'${filterCat?.label ?? ''}' 카테고리에 앨범이 없어요.\n앨범을 열어 카테고리를 바꿀 수 있어요.",
           )
         else
-          GridView.builder(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.4,
+          AlbumCardGrid(
+            children: [
+              for (final a in shown)
+                () {
+                  final photos = s.albumPhotos(a);
+                  return AlbumCard(
+                    cover: photos.isNotEmpty
+                        ? photos.first
+                        : PhotoItem(id: a.id + 4, date: '', place: ''),
+                    title: a.title,
+                    count: photos.length,
+                    badge: s.albumFilter == null
+                        ? s.categoryById(a.category)?.label
+                        : null,
+                    onTap: () => s.openAlbum(a.id),
+                  );
+                }(),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// 앨범 카테고리 캡슐 버튼 줄 (가로 스크롤) + 맨 끝 '＋ 추가'.
+/// includeAll: 맨 앞에 '전체'(null) 포함 — 앨범 탭 필터용.
+/// includeAll 이 false 면 선택한 칩을 다시 누를 때 '분류 없음'(null)으로 돌아간다.
+class CategoryChips extends StatefulWidget {
+  const CategoryChips({
+    super.key,
+    required this.state,
+    required this.selected,
+    required this.onSelect,
+    this.includeAll = false,
+    this.aiId,
+  });
+
+  final SnapbackState state;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+  final bool includeAll;
+
+  /// AI 가 추천한 카테고리 id — 칩에 반짝이 아이콘 표시
+  final String? aiId;
+
+  @override
+  State<CategoryChips> createState() => _CategoryChipsState();
+}
+
+class _CategoryChipsState extends State<CategoryChips> {
+  bool _adding = false;
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final c = widget.state.addCategory(_name.text);
+    _name.clear();
+    setState(() => _adding = false);
+    if (c != null) widget.onSelect(c.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = widget.selected;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Bleed(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                if (widget.includeAll)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SnapChip(
+                      label: '전체',
+                      accent: true,
+                      selected: sel == null,
+                      onTap: () => widget.onSelect(null),
+                    ),
+                  ),
+                for (final cat in widget.state.allCategories)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SnapChip(
+                      label: cat.label,
+                      icon: cat.id == widget.aiId ? 'sparkle' : null,
+                      accent: true,
+                      selected: sel == cat.id,
+                      onTap: () => widget.onSelect(
+                        !widget.includeAll && sel == cat.id ? null : cat.id,
+                      ),
+                    ),
+                  ),
+                SnapChip(
+                  label: '추가',
+                  icon: 'plus',
+                  dashed: true,
+                  onTap: () => setState(() => _adding = !_adding),
+                ),
+              ],
             ),
-            itemCount: s.albums.length,
-            itemBuilder: (_, i) {
-              final a = s.albums[i];
-              final photos = s.albumPhotos(a);
-              return PhotoTile(
-                item: photos.isNotEmpty
-                    ? photos.first
-                    : PhotoItem(id: a.id + 4, date: '', place: ''),
-                radius: 12,
-                label: '${a.title} · ${photos.length}',
-                onTap: () => s.openAlbum(a.id),
-              );
-            },
+          ),
+        ),
+        if (_adding)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: SnapSearchBar(
+              controller: _name,
+              showIcon: false,
+              hint: '새 카테고리 이름 (예: 반려동물)',
+              buttonIcon: 'check',
+              onSubmit: _submit,
+            ),
           ),
       ],
     );
@@ -705,6 +907,9 @@ class Screen17AlbumPreview extends StatefulWidget {
 class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
   late final _title =
       TextEditingController(text: widget.state.albumDraft?.title ?? '');
+
+  /// 처음 받은 AI 추천 카테고리 (사용자가 바꿔도 표시용으로 유지)
+  late final String? _aiCategory = widget.state.albumDraft?.category;
 
   @override
   void dispose() {
@@ -748,6 +953,18 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
           buttonIcon: 'check',
           onSubmit: () => FocusScope.of(context).unfocus(),
         ),
+        const SnapH3('카테고리', small: true),
+        CategoryChips(
+          state: s,
+          selected: draft.category,
+          aiId: _aiCategory,
+          onSelect: s.setDraftCategory,
+        ),
+        if (_aiCategory != null)
+          SnapNote(
+            "AI 추천: '${s.categoryById(_aiCategory)?.label ?? ''}' · 눌러서 바꿀 수 있어요",
+            top: 8,
+          ),
         Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 10),
           child: SnapSub(
@@ -1510,9 +1727,21 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
       children: [
         SnapbackTopBar(title: album.title, onBack: () => s.go(11)),
         SnapSub(
-          '사진 ${photos.length}장 · ${made.year}.${made.month}.${made.day} 검색에서 만듦',
+          '사진 ${photos.length}장 · ${made.year}.${made.month}.${made.day} 만듦',
         ),
         const SizedBox(height: 12),
+        CategoryChips(
+          state: s,
+          selected: album.category,
+          onSelect: (id) => s.setAlbumCategory(album.id, id),
+        ),
+        SnapNote(
+          album.category == null
+              ? '카테고리를 고르면 앨범 탭에서 모아 볼 수 있어요'
+              : '고른 카테고리를 한 번 더 누르면 분류가 해제돼요',
+          top: 8,
+        ),
+        const SizedBox(height: 14),
         if (photos.isEmpty)
           const SnapEmpty(
             icon: 'image',

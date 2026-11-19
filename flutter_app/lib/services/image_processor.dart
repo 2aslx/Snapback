@@ -14,6 +14,7 @@ class ProcessedImage {
     required this.hasExifDate,
     this.gps,
     this.previewBytes,
+    this.takenAt,
   });
 
   final String analyzeDataUrl;
@@ -24,6 +25,9 @@ class ProcessedImage {
 
   /// 웹 전용 1080px 미리보기 JPEG (IndexedDB 저장용)
   final Uint8List? previewBytes;
+
+  /// 촬영 시각 (EXIF 원본 시각 → 없으면 파일 시각)
+  final DateTime? takenAt;
 }
 
 Uint8List _resizeToJpeg(_ResizeRequest req) {
@@ -87,13 +91,15 @@ double? _toCoord(IfdTag? tag, IfdTag? refTag) {
 DateTime? _parseExifDate(String? raw) {
   if (raw == null || raw.trim().isEmpty) return null;
   // Format: "YYYY:MM:DD HH:MM:SS"
-  final m = RegExp(r'^(\d{4}):(\d{2}):(\d{2})').firstMatch(raw.trim());
+  final m = RegExp(r'^(\d{4}):(\d{2}):(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?')
+      .firstMatch(raw.trim());
   if (m == null) return null;
   final y = int.tryParse(m.group(1)!);
   final mo = int.tryParse(m.group(2)!);
   final d = int.tryParse(m.group(3)!);
   if (y == null || mo == null || d == null) return null;
-  return DateTime(y, mo, d);
+  int t(int g) => int.tryParse(m.group(g) ?? '') ?? 0;
+  return DateTime(y, mo, d, t(4), t(5), t(6));
 }
 
 class ImageProcessor {
@@ -143,6 +149,7 @@ class ImageProcessor {
       hasExifDate: exifDt != null,
       gps: gps,
       previewBytes: preview,
+      takenAt: dt,
     );
   }
 
@@ -176,6 +183,7 @@ class ImageProcessor {
       dateStr: _dateStr(asset.createDateTime),
       hasExifDate: true,
       gps: gps,
+      takenAt: asset.createDateTime,
     );
   }
 }

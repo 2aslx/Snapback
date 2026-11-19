@@ -19,6 +19,7 @@ class PhotoItem {
     this.assetW,
     this.assetH,
     this.previewKey,
+    this.takenAtMs,
   });
 
   final int id;
@@ -61,6 +62,9 @@ class PhotoItem {
   /// 웹: IndexedDB 에 저장한 1080px 미리보기 키
   final String? previewKey;
 
+  /// 촬영 시각 (ms). '그날의 사진' 대표사진(가장 가까운 시각) 계산용. 기존 데이터에는 없을 수 있음.
+  final int? takenAtMs;
+
   Map<String, dynamic> toJson({bool includeThumb = true}) => {
         'id': id,
         if (fileKey != null) 'key': fileKey,
@@ -82,6 +86,7 @@ class PhotoItem {
         if (includeThumb && assetW != null) 'aw': assetW,
         if (includeThumb && assetH != null) 'ah': assetH,
         if (includeThumb && previewKey != null) 'pv': previewKey,
+        if (includeThumb && takenAtMs != null) 'ts': takenAtMs,
       };
 
   factory PhotoItem.fromJson(Map<String, dynamic> j) {
@@ -117,6 +122,7 @@ class PhotoItem {
       assetW: (j['aw'] as num?)?.toInt(),
       assetH: (j['ah'] as num?)?.toInt(),
       previewKey: j['pv'] as String?,
+      takenAtMs: (j['ts'] as num?)?.toInt(),
     );
   }
 }

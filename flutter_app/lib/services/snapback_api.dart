@@ -143,18 +143,26 @@ class SnapbackApi {
   }
 
   /// AI 대화형 앨범: 자연어 요청 → (앨범 이름, 고른 사진 id)
-  Future<(String, List<int>)> composeAlbum(
+  /// 앨범 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null)
+  Future<(String, List<int>, String?)> composeAlbum(
     List<PhotoItem> db,
-    String request,
-  ) async {
+    String request, {
+    List<Map<String, String>> categories = const [],
+  }) async {
     final data = await _post('/api/album', {
       'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
       'request': request,
+      if (categories.isNotEmpty) 'categories': categories,
     });
     final ids = (data['ids'] as List? ?? const [])
         .whereType<num>()
         .map((e) => e.toInt())
         .toList();
-    return ((data['title'] ?? '').toString(), ids);
+    final cat = data['category'];
+    return (
+      (data['title'] ?? '').toString(),
+      ids,
+      cat is String && cat.isNotEmpty ? cat : null,
+    );
   }
 }

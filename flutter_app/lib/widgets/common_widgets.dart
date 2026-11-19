@@ -62,9 +62,10 @@ class SnapIcon extends StatelessWidget {
 
 /// 누르면 opacity .6 (.btn:active, .chip:active, .row:active …)
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, this.onTap});
+  const Pressable({super.key, required this.child, this.onTap, this.onLongPress});
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<Pressable> createState() => _PressableState();
@@ -82,6 +83,7 @@ class _PressableState extends State<Pressable> {
       onTapCancel: () => setState(() => _down = false),
       onTapUp: (_) => setState(() => _down = false),
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: AnimatedOpacity(
         opacity: _down ? 0.6 : 1,
         duration: const Duration(milliseconds: 150),
@@ -631,6 +633,8 @@ class SnapChip extends StatelessWidget {
     this.card = false,
     this.icon,
     this.onTap,
+    this.onLongPress,
+    this.accent = false,
   });
 
   final String label;
@@ -639,20 +643,29 @@ class SnapChip extends StatelessWidget {
   final bool card;
   final String? icon;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  /// 선택 시 테라코타(pri) 배경 + 흰 글씨 (앨범 카테고리 필터)
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
-    final fg = dashed ? c.mute : (selected ? c.bg : c.ink);
+    final fg = dashed
+        ? c.mute
+        : selected
+        ? (accent ? Colors.white : c.bg)
+        : c.ink;
     return Pressable(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
         decoration: BoxDecoration(
           color: dashed
               ? null
               : selected
-              ? c.ink
+              ? (accent ? c.pri : c.ink)
               : (card ? c.card : c.fill),
           borderRadius: BorderRadius.circular(99),
           border: dashed
@@ -1249,4 +1262,128 @@ class _StripePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _StripePainter old) => old.a != a || old.b != b;
+}
+
+/// 앨범 카드 — 대표사진 1장 + 뒤에 사진이 겹쳐 쌓인 모양 + 이름 + "사진 N장".
+/// 일반 사진 썸네일과 구분되도록 뒤쪽 두 장이 위로 살짝 보인다.
+class AlbumCard extends StatelessWidget {
+  const AlbumCard({
+    super.key,
+    required this.cover,
+    required this.title,
+    required this.count,
+    this.onTap,
+    this.badge,
+  });
+
+  final PhotoItem cover;
+  final String title;
+  final int count;
+  final VoidCallback? onTap;
+
+  /// 이름 옆 작은 표시 (예: 카테고리)
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    Widget layer(double inset, double top, double t) => Positioned(
+      left: inset,
+      right: inset,
+      top: top,
+      bottom: 14 - top,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Color.lerp(c.pri, c.bg, t),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.bg, width: 1.5),
+        ),
+      ),
+    );
+    return Pressable(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1 / 1.06,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                layer(16, 0, 0.72),
+                layer(8, 7, 0.5),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 14,
+                  bottom: 0,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: c.bg, width: 1.5),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A000000),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: PhotoTile(item: cover, radius: 11, showDate: false),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2,
+              color: c.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            badge == null ? '사진 $count장' : '사진 $count장 · $badge',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: c.mute),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 앨범 카드 2열 배치 (홀수 개면 마지막 칸은 비움 → 카드 크기 일정)
+class AlbumCardGrid extends StatelessWidget {
+  const AlbumCardGrid({super.key, required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (var i = 0; i < children.length; i += 2)
+        Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : 18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: children[i]),
+              const SizedBox(width: 14),
+              Expanded(
+                child: i + 1 < children.length
+                    ? children[i + 1]
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
 }

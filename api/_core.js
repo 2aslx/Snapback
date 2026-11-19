@@ -89,22 +89,37 @@ async function search(b) {
   return [200, result];
 }
 
-// AI 대화형 앨범: 자연어 요청에 맞는 사진을 DB에서 모두 고른다
-const albumPrompt = (db, request) =>
+// AI 대화형 앨범: 자연어 요청에 맞는 사진을 DB에서 모두 고르고, 카테고리도 하나 추천한다
+const DEFAULT_CATS = [
+  { id: 'memories', label: '추억', hint: '여행, 가족, 친구, 일상, 기념일' },
+  { id: 'inspiration', label: '취향', hint: '네일, 패션, 쇼핑, 위시리스트, 개인적인 디자인 레퍼런스' },
+  { id: 'projects', label: '작업', hint: '업무 자료, 과제, 디자인 및 프로젝트 레퍼런스' },
+];
+const cleanCats = raw => {
+  const list = (Array.isArray(raw) ? raw : []).slice(0, 20)
+    .map(c => ({ id: String(c?.id || '').slice(0, 40), label: String(c?.label || '').slice(0, 20), hint: String(c?.hint || '').slice(0, 80) }))
+    .filter(c => c.id && c.label);
+  return list.length ? list : DEFAULT_CATS;
+};
+const albumPrompt = (db, request, cats) =>
   '너는 스마트 갤러리의 앨범 큐레이터다. 사용자의 앨범 요청에 맞는 사진을 DB에서 모두 골라라. ' +
   '요청의 포함 조건과 제외 조건(예: "음식 사진은 빼고")을 모두 지켜라. 확실히 맞지 않는 사진은 넣지 마라.' +
+  '\n그리고 요청과 고른 사진 내용을 보고 아래 카테고리 중 가장 알맞은 것 하나의 id를 골라라.' +
+  '\n카테고리:' + JSON.stringify(cats) +
   '\nDB:' + JSON.stringify(db) + '\n요청:' + JSON.stringify(request) +
-  '\nJSON만 출력: {"title":"15자 이내 앨범 이름","ids":[고른 사진 id 숫자들]}';
+  '\nJSON만 출력: {"title":"15자 이내 앨범 이름","ids":[고른 사진 id 숫자들],"category":"카테고리 id"}';
 
 async function album(b) {
   const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
   if (!request || !Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
   const db = b.db.map(({ thumb, e, ...d }) => d);
   const known = new Set(db.map(d => d.id));
-  const r = await ask([{ type: 'input_text', text: albumPrompt(db, request) }]);
+  const cats = cleanCats(b.categories);
+  const r = await ask([{ type: 'input_text', text: albumPrompt(db, request, cats) }]);
   const ids = [...new Set((Array.isArray(r.ids) ? r.ids : []).map(Number))].filter(id => known.has(id));
   const title = String(r.title || '').trim().slice(0, 30) || request.slice(0, 15);
-  return [200, { title, ids }];
+  const category = cats.some(c => c.id === r.category) ? r.category : null;
+  return [200, { title, ids, category }];
 }
 
 const POST_ROUTES = { analyze, search, album };

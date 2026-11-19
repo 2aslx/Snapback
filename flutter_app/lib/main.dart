@@ -62,7 +62,7 @@ class _SnapbackShell extends StatelessWidget {
   final SnapbackState state;
 
   // .scr.tb — 하단 탭바가 보이는 화면
-  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16};
+  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18};
 
   Widget _buildScreen() {
     switch (state.screen) {
@@ -102,6 +102,8 @@ class _SnapbackShell extends StatelessWidget {
         return Screen16AlbumDetail(state: state);
       case 17:
         return Screen17AlbumPreview(state: state);
+      case 18:
+        return Screen18RelatedAlbum(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -218,6 +220,7 @@ class _BottomTabBar extends StatelessWidget {
             children: _tabs.map((t) {
               final active =
                   state.screen == t.$1 ||
+                  (t.$1 == 10 && state.screen == 18) ||
                   (t.$1 == 11 && (state.screen == 16 || state.screen == 17));
               final col = active ? c.pri : c.tabMute;
               return Expanded(

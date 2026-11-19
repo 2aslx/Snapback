@@ -73,6 +73,7 @@ class SnapbackState extends ChangeNotifier {
   static const _dbKey = 'snapback_db';
   static const _urlKey = 'snapback_server_url';
   static const _albumsKey = 'snapback_albums';
+  static const _categoriesKey = 'snapback_album_categories';
 
   final SnapbackApi api = SnapbackApi();
   final ImagePicker _picker = ImagePicker();
@@ -131,6 +132,13 @@ class SnapbackState extends ChangeNotifier {
   int? activeAlbumId;
   int? lastCreatedAlbumId; // 이번 검색에서 만든 앨범 (완료 안내용)
 
+  // 앨범 카테고리: 기본 3개(추억·취향·작업) + 사용자 정의
+  List<AlbumCategory> customCategories = [];
+  List<AlbumCategory> get allCategories => [...kBuiltInCategories, ...customCategories];
+
+  /// 앨범 탭 필터. null = 전체
+  String? albumFilter;
+
   // Usability test (Screen 14)
   ActiveTestSession? testSession;
   final List<UsabilityLogEntry> testLogs = [];
@@ -152,6 +160,16 @@ class SnapbackState extends ChangeNotifier {
         albums = (jsonDecode(rawAlbums) as List)
             .whereType<Map<String, dynamic>>()
             .map(PhotoAlbum.fromJson)
+            .toList();
+      } catch (_) {}
+    }
+    final rawCats = prefs.getString(_categoriesKey);
+    if (rawCats != null && rawCats.isNotEmpty) {
+      try {
+        customCategories = (jsonDecode(rawCats) as List)
+            .whereType<Map<String, dynamic>>()
+            .map(AlbumCategory.fromJson)
+            .where((c) => c.id.isNotEmpty && c.label.isNotEmpty)
             .toList();
       } catch (_) {}
     }
@@ -207,6 +225,16 @@ class SnapbackState extends ChangeNotifier {
       await prefs.setString(
         _albumsKey,
         jsonEncode(albums.map((a) => a.toJson()).toList()),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _saveCategories() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _categoriesKey,
+        jsonEncode(customCategories.map((c) => c.toJson()).toList()),
       );
     } catch (_) {}
   }
@@ -273,8 +301,48 @@ class SnapbackState extends ChangeNotifier {
       go(14);
       return;
     }
+    _relatedNav.clear();
     activeMemoryId = id;
     go(10);
+  }
+
+  // ── 사진 상세의 '관련된 추억' 가상 앨범 (화면 18) ─────────────────
+  // 실제 갤러리에 앨범을 만들지 않고, 앱 안에서 관련 사진을 묶어 보여준다.
+  /// 0 = 그날의 사진, 1 = 비슷한 분위기
+  int relatedAlbumKind = 0;
+
+  /// 어느 사진 상세에서 연 앨범인지
+  int relatedBaseId = 1;
+
+  /// 상세 ↔ 관련 앨범 사이 뒤로가기 기록: (화면, 기준 사진 id, 앨범 종류)
+  final List<(int, int, int)> _relatedNav = [];
+
+  void openRelatedAlbum(int kind) {
+    _relatedNav.add((10, activeMemoryId, 0));
+    relatedAlbumKind = kind;
+    relatedBaseId = activeMemoryId;
+    go(18);
+  }
+
+  /// 관련 앨범 안에서 사진을 눌러 상세로 (뒤로가기 시 앨범으로 돌아옴)
+  void openFromRelatedAlbum(int id) {
+    _relatedNav.add((18, relatedBaseId, relatedAlbumKind));
+    activeMemoryId = id;
+    go(10);
+  }
+
+  /// 관련 앨범 이동 기록이 있으면 한 단계 되돌아가고 true.
+  bool backFromRelated() {
+    if (_relatedNav.isEmpty) return false;
+    final (scr, base, kind) = _relatedNav.removeLast();
+    if (scr == 10) {
+      activeMemoryId = base;
+    } else {
+      relatedBaseId = base;
+      relatedAlbumKind = kind;
+    }
+    go(scr);
+    return true;
   }
 
   // ── iOS 사진 보관함 (photo_manager) ─────────────────────────────
@@ -519,6 +587,7 @@ class SnapbackState extends ChangeNotifier {
           assetW: entry.asset?.width,
           assetH: entry.asset?.height,
           previewKey: previewKey,
+          takenAtMs: processed.takenAt?.millisecondsSinceEpoch,
         );
         db.add(item);
         await _saveDb();
@@ -689,7 +758,14 @@ class SnapbackState extends ChangeNotifier {
     albumError = null;
     notifyListeners();
     try {
-      final (title, ids) = await api.composeAlbum(visiblePhotos, q);
+      final (title, ids, category) = await api.composeAlbum(
+        visiblePhotos,
+        q,
+        categories: [
+          for (final c in allCategories)
+            {'id': c.id, 'label': c.label, if (c.hint.isNotEmpty) 'hint': c.hint},
+        ],
+      );
       final byId = {for (final d in db) d.id: d};
       final valid = ids.where(byId.containsKey).toList();
       if (valid.isEmpty) {
@@ -699,6 +775,7 @@ class SnapbackState extends ChangeNotifier {
           title: title.isEmpty ? q : title,
           emoji: byId[valid.first]!.emoji,
           photoIds: valid,
+          category: categoryById(category)?.id,
         );
         albumDraftSelected.clear();
         screen = 17;
@@ -727,6 +804,7 @@ class SnapbackState extends ChangeNotifier {
       title: d.title,
       emoji: d.emoji,
       photoIds: d.photoIds.where((id) => !albumDraftSelected.contains(id)).toList(),
+      category: d.category,
     );
     albumDraftSelected.clear();
     notifyListeners();
@@ -753,6 +831,7 @@ class SnapbackState extends ChangeNotifier {
         emoji: sug.emoji,
         photoIds: List.of(sug.photoIds),
         createdAtMs: DateTime.now().millisecondsSinceEpoch,
+        category: sug.category,
       ),
     );
     lastCreatedAlbumId = id;
@@ -774,6 +853,78 @@ class SnapbackState extends ChangeNotifier {
       for (final id in album.photoIds)
         if (byId[id] != null) byId[id]!,
     ];
+  }
+
+  // ── 앨범 카테고리 ─────────────────────────────────────────
+  AlbumCategory? categoryById(String? id) {
+    if (id == null) return null;
+    for (final c in allCategories) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  /// 필터에 맞는 앨범. 카테고리 없는 앨범은 '전체'에서만 보인다.
+  List<PhotoAlbum> get filteredAlbums => albumFilter == null
+      ? albums
+      : albums.where((a) => a.category == albumFilter).toList();
+
+  void setAlbumFilter(String? id) {
+    albumFilter = id;
+    notifyListeners();
+  }
+
+  /// 사용자 정의 카테고리 추가. 같은 이름이 있으면 그것을 돌려준다.
+  AlbumCategory? addCategory(String label) {
+    final t = label.trim();
+    if (t.isEmpty) return null;
+    final name = t.length > 12 ? t.substring(0, 12) : t;
+    for (final c in allCategories) {
+      if (c.label == name) return c;
+    }
+    final c = AlbumCategory(
+      id: 'c${DateTime.now().millisecondsSinceEpoch}',
+      label: name,
+    );
+    customCategories.add(c);
+    notifyListeners();
+    _saveCategories();
+    return c;
+  }
+
+  /// 사용자 정의 카테고리 삭제. 그 카테고리의 앨범은 '분류 없음'으로 돌아간다(앨범은 유지).
+  void removeCategory(String id) {
+    if (!customCategories.any((c) => c.id == id)) return;
+    customCategories.removeWhere((c) => c.id == id);
+    for (final a in albums) {
+      if (a.category == id) a.category = null;
+    }
+    if (albumFilter == id) albumFilter = null;
+    if (albumDraft?.category == id) setDraftCategory(null);
+    notifyListeners();
+    _saveCategories();
+    _saveAlbums();
+  }
+
+  void setAlbumCategory(int albumId, String? category) {
+    final a = albumById(albumId);
+    if (a == null) return;
+    a.category = category;
+    notifyListeners();
+    _saveAlbums();
+  }
+
+  /// 미리보기에서 AI 추천 카테고리를 바꾼다.
+  void setDraftCategory(String? category) {
+    final d = albumDraft;
+    if (d == null) return;
+    albumDraft = AlbumSuggestion(
+      title: d.title,
+      emoji: d.emoji,
+      photoIds: d.photoIds,
+      category: category,
+    );
+    notifyListeners();
   }
 
   void openAlbum(int id) {
@@ -825,6 +976,25 @@ class SnapbackState extends ChangeNotifier {
     return raw
         .where((x) => x.isNotEmpty && !{'알', '수', '없음'}.contains(x))
         .toSet();
+  }
+
+  static const _timeOrder = {'아침': 0, '낮': 1, '오후': 1, '저녁': 2, '밤': 3};
+
+  /// '그날의 사진' 대표: 기준 사진과 촬영 시각이 가장 가까운 사진.
+  /// 시각 정보가 없는 기존 데이터는 시간대(낮/저녁/밤) → 분석 순서가 가까운 순.
+  static PhotoItem? closestInTime(PhotoItem base, List<PhotoItem> list) {
+    if (list.isEmpty) return null;
+    num dist(PhotoItem x) {
+      if (base.takenAtMs != null && x.takenAtMs != null) {
+        return (x.takenAtMs! - base.takenAtMs!).abs();
+      }
+      final a = _timeOrder[base.time], b = _timeOrder[x.time];
+      final slot = (a != null && b != null) ? (a - b).abs() : 2;
+      // 시각이 있는 쪽을 항상 우선
+      return 1e13 + slot * 1e6 + (x.id - base.id).abs();
+    }
+
+    return list.reduce((m, x) => dist(x) < dist(m) ? x : m);
   }
 
   RelatedMemories relatedFor(PhotoItem d) {
