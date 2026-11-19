@@ -6,6 +6,10 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+/// AI 분석용 이미지 긴 변(px). 서버가 저해상도 모드(detail: low)로 보내므로
+/// 모델이 실제로 보는 최대 크기인 512에 맞춘다 (더 크게 보내도 정확도는 같고 느리기만 함).
+const kAnalyzeSize = 512;
+
 class ProcessedImage {
   ProcessedImage({
     required this.analyzeDataUrl,
@@ -131,7 +135,7 @@ class ImageProcessor {
 
     final analyzeUrl = await compute(
       _resizeAndEncode,
-      _ResizeRequest(bytes, 640, 75),
+      _ResizeRequest(bytes, kAnalyzeSize, 80),
     );
     final thumbUrl = await compute(
       _resizeAndEncode,
@@ -178,7 +182,7 @@ class ImageProcessor {
     } catch (_) {}
 
     return ProcessedImage(
-      analyzeDataUrl: await jpeg(640, 75),
+      analyzeDataUrl: await jpeg(kAnalyzeSize, 80),
       thumbDataUrl: await jpeg(160, 60),
       dateStr: _dateStr(asset.createDateTime),
       hasExifDate: true,

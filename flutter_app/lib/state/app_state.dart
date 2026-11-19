@@ -97,6 +97,9 @@ class ActiveTestSession {
   int? firstRank;
 }
 
+/// 사진 분석 동시 처리 수 (서버 분석 요청 제한 분당 120회 안에서)
+const kAnalyzeConcurrency = 5;
+
 class SnapbackState extends ChangeNotifier {
   SnapbackState() {
     _init();
@@ -314,7 +317,9 @@ class SnapbackState extends ChangeNotifier {
         if (!k.startsWith('asset:')) continue;
         final a = await AssetEntity.fromId(k.substring(6));
         if (a == null) continue; // 그사이 지운 사진
-        pickQueue.add(PickedFileEntry(asset: a, key: k, modified: a.createDateTime));
+        pickQueue.add(
+          PickedFileEntry(asset: a, key: k, modified: a.createDateTime),
+        );
       }
       if (pickQueue.isEmpty) return;
       analysisTotal = pickQueue.length;
@@ -764,8 +769,9 @@ class SnapbackState extends ChangeNotifier {
     analysisRunning = true;
     analysisFinished = false;
 
+    final analyzed = {for (final d in db) d.fileKey};
     final pending = pickQueue
-        .where((p) => !db.any((d) => d.fileKey == p.key))
+        .where((p) => !analyzed.contains(p.key) && !_inFlight.contains(p.key))
         .toList();
 
     if (orderSelection == 2) {
@@ -802,92 +808,39 @@ class SnapbackState extends ChangeNotifier {
 
     final t0 = DateTime.now().millisecondsSinceEpoch;
     var processedCount = 0;
+    var next = 0;
 
-    for (var i = 0; i < pending.length; i++) {
-      if (myRun != _runId || analysisPaused) {
-        analysisRunning = false;
+    // 여러 장 동시에 분석: 일꾼(worker) N개가 대기열에서 한 장씩 가져간다
+    Future<void> worker() async {
+      while (true) {
+        if (myRun != _runId || analysisPaused) return;
+        if (next >= pending.length) return;
+        final entry = pending[next++];
+        currentFileDate = entry.modified;
         notifyListeners();
-        return;
+        await _analyzeOne(entry);
+        if (myRun != _runId) return; // 그사이 새 분석이 시작됨
+        analysisDone++;
+        processedCount++;
+        final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
+        final remaining = analysisTotal - analysisDone;
+        // 동시에 처리하므로 실제 흐른 시간 기준으로 남은 시간 계산
+        etaMs = remaining > 0
+            ? ((elapsed / processedCount) * remaining).round()
+            : 0;
+        notifyListeners();
       }
-      final entry = pending[i];
-      currentFileDate = entry.modified;
+    }
+
+    await Future.wait([
+      for (var w = 0; w < math.min(kAnalyzeConcurrency, pending.length); w++)
+        worker(),
+    ]);
+
+    if (myRun != _runId || analysisPaused) {
+      analysisRunning = false;
       notifyListeners();
-
-      try {
-        final processed = entry.asset != null
-            ? await ImageProcessor.processAsset(entry.asset!)
-            : await ImageProcessor.process(entry.file!, entry.modified);
-        String? previewKey;
-        if (processed.previewBytes != null && PreviewStore.enabled) {
-          previewKey = 'pv:${entry.key}';
-          await PreviewStore.put(previewKey, processed.previewBytes!);
-        }
-        final ai = await api.analyzeImage(processed.analyzeDataUrl);
-        final rawFood = ai['food'];
-        final foodList = rawFood is List
-            ? rawFood.map((e) => e.toString()).toList()
-            : (rawFood is String && rawFood.isNotEmpty
-                  ? [rawFood]
-                  : <String>[]);
-
-        final item = PhotoItem(
-          id: _nextId++,
-          fileKey: entry.key,
-          date: processed.dateStr,
-          place: (ai['place'] ?? '알 수 없음').toString(),
-          food: foodList,
-          people: (ai['people'] ?? '').toString(),
-          background: (ai['background'] ?? '').toString(),
-          weather: (ai['weather'] ?? '알 수 없음').toString(),
-          time: (ai['time'] ?? '알 수 없음').toString(),
-          caption: (ai['caption'] ?? '').toString(),
-          gps: processed.gps,
-          exif: processed.hasExifDate,
-          thumbDataUrl: processed.thumbDataUrl,
-          assetId: entry.asset?.id,
-          assetW: entry.asset?.width,
-          assetH: entry.asset?.height,
-          previewKey: previewKey,
-          takenAtMs: processed.takenAt?.millisecondsSinceEpoch,
-        );
-        db.add(item);
-        await _saveDb();
-        analysisLogs.insert(
-          0,
-          AnalysisLogEntry(
-            isError: false,
-            text: '#${item.id} ${item.caption}',
-            subtext: '${item.place} · ${item.date}',
-            thumbDataUrl: item.thumbDataUrl,
-          ),
-        );
-      } on ApiException catch (e) {
-        aiStatusText = e.userMessage;
-        analysisLogs.insert(
-          0,
-          AnalysisLogEntry(
-            isError: true,
-            text: '⚠️ ${entry.label} — ${e.userMessage}',
-          ),
-        );
-      } catch (e) {
-        analysisLogs.insert(
-          0,
-          AnalysisLogEntry(isError: true, text: '⚠️ ${entry.label} — 오류 ($e)'),
-        );
-      }
-
-      analysisDone++;
-      processedCount++;
-      final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
-      final remaining = analysisTotal - analysisDone;
-      etaMs = remaining > 0
-          ? ((elapsed / processedCount) * remaining).round()
-          : 0;
-      currentFileDate = i + 1 < pending.length
-          ? pending[i + 1].modified
-          : entry.modified;
-      notifyListeners();
+      return;
     }
 
     if (myRun == _runId) {
@@ -896,6 +849,78 @@ class SnapbackState extends ChangeNotifier {
       etaMs = 0;
       _clearQueue();
       notifyListeners();
+    }
+  }
+
+  /// 사진 1장: 줄이기 → AI 분석 → DB 저장 (실패하면 기록만 남기고 넘어감)
+  /// 지금 분석 요청 중인 사진 (일시정지 후 바로 다시 시작해도 같은 사진을 두 번 보내지 않게)
+  final Set<String> _inFlight = {};
+
+  Future<void> _analyzeOne(PickedFileEntry entry) async {
+    _inFlight.add(entry.key);
+    try {
+      final processed = entry.asset != null
+          ? await ImageProcessor.processAsset(entry.asset!)
+          : await ImageProcessor.process(entry.file!, entry.modified);
+      String? previewKey;
+      if (processed.previewBytes != null && PreviewStore.enabled) {
+        previewKey = 'pv:${entry.key}';
+        await PreviewStore.put(previewKey, processed.previewBytes!);
+      }
+      final ai = await api.analyzeImage(processed.analyzeDataUrl);
+      final rawFood = ai['food'];
+      final foodList = rawFood is List
+          ? rawFood.map((e) => e.toString()).toList()
+          : (rawFood is String && rawFood.isNotEmpty ? [rawFood] : <String>[]);
+
+      final item = PhotoItem(
+        id: _nextId++,
+        fileKey: entry.key,
+        date: processed.dateStr,
+        place: (ai['place'] ?? '알 수 없음').toString(),
+        food: foodList,
+        people: (ai['people'] ?? '').toString(),
+        background: (ai['background'] ?? '').toString(),
+        weather: (ai['weather'] ?? '알 수 없음').toString(),
+        time: (ai['time'] ?? '알 수 없음').toString(),
+        caption: (ai['caption'] ?? '').toString(),
+        gps: processed.gps,
+        exif: processed.hasExifDate,
+        thumbDataUrl: processed.thumbDataUrl,
+        assetId: entry.asset?.id,
+        assetW: entry.asset?.width,
+        assetH: entry.asset?.height,
+        previewKey: previewKey,
+        takenAtMs: processed.takenAt?.millisecondsSinceEpoch,
+      );
+      if (db.any((d) => d.fileKey == entry.key)) return; // 이미 저장됨 (중복 방지)
+      db.add(item);
+      await _saveDb();
+      analysisLogs.insert(
+        0,
+        AnalysisLogEntry(
+          isError: false,
+          text: '#${item.id} ${item.caption}',
+          subtext: '${item.place} · ${item.date}',
+          thumbDataUrl: item.thumbDataUrl,
+        ),
+      );
+    } on ApiException catch (e) {
+      aiStatusText = e.userMessage;
+      analysisLogs.insert(
+        0,
+        AnalysisLogEntry(
+          isError: true,
+          text: '⚠️ ${entry.label} — ${e.userMessage}',
+        ),
+      );
+    } catch (e) {
+      analysisLogs.insert(
+        0,
+        AnalysisLogEntry(isError: true, text: '⚠️ ${entry.label} — 오류 ($e)'),
+      );
+    } finally {
+      _inFlight.remove(entry.key);
     }
   }
 

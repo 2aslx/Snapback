@@ -45,9 +45,15 @@ const isDupQ = (q, asked) => {
   return !n || asked.some(a => normQ(a) === n);
 };
 
-// IP당 분당 30회 제한 (서버리스에서는 인스턴스별로 집계됨)
+// IP당 분당 요청 제한 (서버리스에서는 인스턴스별로 집계됨)
+// 사진 분석은 앱이 여러 장을 동시에 보내므로 120회, 나머지(검색·앨범 등)는 30회
+const LIMITS = { analyze: 120 };
 const hits = new Map();
-const limited = ip => { const n = Date.now(), a = (hits.get(ip) || []).filter(t => n - t < 60000); a.push(n); hits.set(ip, a); return a.length > 30; };
+const limited = (ip, route) => {
+  const k = route + ':' + ip, n = Date.now(), a = (hits.get(k) || []).filter(t => n - t < 60000);
+  a.push(n); hits.set(k, a);
+  return a.length > (LIMITS[route] || 30);
+};
 
 const MAX_BODY = 6e6;
 // Vercel 은 JSON 본문을 req.body 로 미리 파싱해 준다. 로컬(node:http)은 스트림을 직접 읽는다.
@@ -68,7 +74,8 @@ const clientIp = req => String(req.headers['x-forwarded-for'] || '').split(',')[
 
 async function analyze(b) {
   if (typeof b.image !== 'string' || !b.image.startsWith('data:image/')) return [400, { error: 'bad_image' }];
-  return [200, await ask([{ type: 'input_text', text: ANALYZE }, { type: 'input_image', image_url: b.image }])];
+  // detail:'low' — 모델이 512px 한 장으로 본다 (앱도 512px로 보냄). 빠르고 토큰이 적다.
+  return [200, await ask([{ type: 'input_text', text: ANALYZE }, { type: 'input_image', image_url: b.image, detail: 'low' }])];
 }
 
 // wantQuestion: 사용자가 '질문 한 번 더하기'를 눌렀을 때 — 질문 개수 제한 없이 반드시 하나 만들도록 요청
@@ -163,7 +170,7 @@ export async function handleApi(req, res, route) {
     const fn = POST_ROUTES[route];
     if (!fn) return send(res, 404, { error: 'not_found' });
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' });
-    if (limited(clientIp(req))) return send(res, 429, { error: 'rate_limited' });
+    if (limited(clientIp(req), route)) return send(res, 429, { error: 'rate_limited' });
     const [code, out] = await fn(await readBody(req));
     return send(res, code, out);
   } catch (e) {

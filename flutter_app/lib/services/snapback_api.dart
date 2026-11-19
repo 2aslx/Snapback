@@ -118,8 +118,17 @@ class SnapbackApi {
     return data;
   }
 
-  Future<Map<String, dynamic>> analyzeImage(String imageDataUrl) {
-    return _post('/api/analyze', {'image': imageDataUrl});
+  /// 사진 1장 분석. 서버·OpenAI 가 잠깐 바쁘면(429/5xx/시간초과) 조금 기다렸다 최대 2번 다시 시도.
+  Future<Map<String, dynamic>> analyzeImage(String imageDataUrl) async {
+    const retry = {'rate_limited', 'openai_429', 'openai_500', 'openai_503', 'timeout'};
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _post('/api/analyze', {'image': imageDataUrl});
+      } on ApiException catch (e) {
+        if (attempt >= 2 || !retry.contains(e.code)) rethrow;
+        await Future<void>.delayed(Duration(seconds: 3 * (attempt + 1)));
+      }
+    }
   }
 
   /// [wantQuestion] — '질문 한 번 더하기': 서버가 후보를 가를 질문을 반드시 하나 만든다.
