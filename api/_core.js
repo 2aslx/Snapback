@@ -11,22 +11,27 @@ const fail = c => Object.assign(new Error(c), { code: c });          // 클라�
 const hide = s => String(s).replace(/sk-[\w\-*.]+/g, 'sk-***').replace(/AIza[\w-]+/g, 'AIza***'); // 로그에 키가 섞여도 가림
 const mapsKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
 
-// OpenAI Responses API 호출 → JSON 객체로 반환
+// OpenAI Chat Completions 호출 → JSON 객체로 반환
+// (같은 계정에서 사진 분석이 Responses API 보다 약 1.7배 빨라 이 방식을 쓴다)
+// content 항목: {type:'input_text', text} | {type:'input_image', image_url, detail?}
+const toChat = c => c.type === 'input_image'
+  ? { type: 'image_url', image_url: { url: c.image_url, ...(c.detail ? { detail: c.detail } : {}) } }
+  : { type: 'text', text: c.text };
 async function ask(content) {
   if (!key()) throw fail('no_api_key');
   let r;
   try {
-    r = await fetch('https://api.openai.com/v1/responses', {
+    r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key() },
-      // store:false — OpenAI 에 요청·응답을 저장하지 않는다 (사진 정보가 남지 않고, 동시 요청도 막히지 않음)
-      body: JSON.stringify({ model: MODEL, input: [{ role: 'user', content }], text: { format: { type: 'json_object' } }, store: false }),
+      // store:false — OpenAI 에 요청·응답(사진 정보)을 저장하지 않는다
+      body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: content.map(toChat) }], response_format: { type: 'json_object' }, store: false }),
       signal: AbortSignal.timeout(60000), // 60초 넘으면 중단
     });
   } catch (e) { throw fail(e.name === 'TimeoutError' ? 'timeout' : 'openai_unreachable'); }
   if (!r.ok) { console.error('OpenAI 오류', r.status, hide((await r.text()).slice(0, 300))); throw fail('openai_' + r.status); }
   const j = await r.json();
-  const text = (j.output || []).flatMap(o => o.content || []).map(c => c.text || '').join('');
+  const text = j.choices?.[0]?.message?.content || '';
   try { return JSON.parse(text); } catch { console.error('AI 응답이 JSON이 아님:', hide(text.slice(0, 200))); throw fail('bad_ai_json'); }
 }
 
