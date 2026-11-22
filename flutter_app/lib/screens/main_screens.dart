@@ -5,6 +5,7 @@ import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/photo_image.dart';
+import 'record_screens.dart';
 
 // index.html(2aslx-patch-1) 의 섹션 5~15 + Flutter 추가 화면(16 앨범 상세).
 
@@ -468,7 +469,7 @@ class Screen10MemoryDetail extends StatefulWidget {
 }
 
 class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
-  bool _infoOpen = false;
+  bool _infoOpen = true;
   int? _shownId;
 
   @override
@@ -480,25 +481,27 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       orElse: () => s.db.first,
     );
     if (_shownId != item.id) {
-      _shownId = item.id; // 다른 사진으로 이동하면 정보는 다시 접힌 상태
-      _infoOpen = false;
+      _shownId = item.id; // 다른 사진으로 이동하면 정보는 다시 펼친 상태
+      _infoOpen = true;
     }
     final rel = s.relatedFor(item);
-    // 관련 사진을 가상 앨범으로 묶어 대표사진 1장만 보여준다. 사진이 없는 앨범은 숨김.
-    final relatedCards = <Widget>[
-      if (SnapbackState.closestInTime(item, rel.sameDay) case final cover?)
-        AlbumCard(
-          cover: cover,
+    final record = s.recordForPhoto(item.id);
+    final isDoc = record?.type == 'document';
+    // 관련 사진을 가상 앨범으로 묶어 보여준다. 사진이 없는 앨범은 숨김.
+    final relatedTiles = <Widget>[
+      if (rel.sameDay.isNotEmpty)
+        RelatedTile(
+          icon: 'photos',
           title: '그날의 사진',
           count: rel.sameDay.length,
           onTap: () => s.openRelatedAlbum(0),
         ),
-      // similarMood 는 유사도 높은 순 → 첫 번째가 대표
-      if (rel.similarMood.firstOrNull case final cover?)
-        AlbumCard(
-          cover: cover,
-          title: '비슷한 분위기',
+      if (rel.similarMood.isNotEmpty)
+        RelatedTile(
+          icon: 'flower',
+          title: isDoc ? '비슷한 문서' : '비슷한 분위기',
           count: rel.similarMood.length,
+          cool: true,
           onTap: () => s.openRelatedAlbum(1),
         ),
     ];
@@ -506,7 +509,7 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
     String join(Iterable<String> xs) =>
         xs.where((x) => x.trim().isNotEmpty && x != '알 수 없음').join(' · ');
     final info = <(String, String, String)>[
-      ('clock', '촬영 날짜·시간', join([item.date, item.time])),
+      ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
       (
         'pin',
         '촬영 장소',
@@ -542,39 +545,83 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
           },
           trailing: Text(item.date),
         ),
-        SnapHero(item: item),
-        if (relatedCards.isNotEmpty) ...[
-          const SnapH3('관련된 추억'),
-          AlbumCardGrid(children: relatedCards),
-        ],
-        SnapGroup(
-          top: 24,
-          children: [
-            SnapRow(
-              leading: const IconBadge('sparkle'),
-              title: '사진 정보 보기',
-              trailing: AnimatedRotation(
-                turns: _infoOpen ? 0.25 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: const Chevron(),
+        RoundedPhoto(item: item),
+        if (record != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(
+              record.title,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+                color: c.ink,
               ),
-              onTap: () => setState(() => _infoOpen = !_infoOpen),
             ),
-            if (_infoOpen)
-              for (final x in info)
-                SnapRow(
-                  leading: SnapIcon(x.$1, size: 18.4, color: c.mute),
-                  title: x.$3,
-                  titleWidget: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(x.$2, style: TextStyle(fontSize: 13, color: c.mute)),
-                      const SizedBox(height: 1),
-                      Text(x.$3, style: TextStyle(fontSize: 16, color: c.ink)),
-                    ],
+          ),
+        if (relatedTiles.isNotEmpty) ...[
+          if (record == null) const SnapH3('관련된 추억') else const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: relatedTiles[0]),
+              const SizedBox(width: 12),
+              Expanded(
+                child: relatedTiles.length > 1 ? relatedTiles[1] : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ],
+        // 사진 정보 (펼치기/접기)
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: SnapCard(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              children: [
+                Pressable(
+                  onTap: () => setState(() => _infoOpen = !_infoOpen),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const IconBadge('sparkle', size: 34, radius: 9),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '사진 정보',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                              color: c.ink,
+                            ),
+                          ),
+                        ),
+                        AnimatedRotation(
+                          turns: _infoOpen ? 0 : -0.25,
+                          duration: const Duration(milliseconds: 200),
+                          child: SnapIcon('down', size: 20, color: c.pk),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-          ],
+                if (_infoOpen) ...[
+                  Container(height: 0.5, color: c.line),
+                  InfoRows(rows: info),
+                ],
+              ],
+            ),
+          ),
+        ),
+        // 기록으로 남기기 / 나의 기록 보기
+        SnapButton(
+          label: record == null ? '기록으로 남기기' : '나의 기록 보기',
+          icon: 'bookmark',
+          top: 20,
+          onTap: record == null
+              ? () => s.startRecord(item.id)
+              : () => s.openRecord(record.id),
         ),
       ],
     );
@@ -614,7 +661,15 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
               ),
           ],
         ),
-        if (photos.isEmpty) ...[
+        // 나의 기록 (기록으로 남긴 사진)
+        if (s.records.isNotEmpty && !_editing) ...[
+          SnapH3('나의 기록', trailing: '(${s.records.length})'),
+          RecordStrip(state: s),
+          if (photos.isNotEmpty) const SnapH3('찾은 사진'),
+        ],
+        if (photos.isEmpty && s.records.isNotEmpty)
+          const SnapNote('검색으로 찾은 사진도 여기에 모여요')
+        else if (photos.isEmpty) ...[
           const SnapEmpty(
             icon: 'heart',
             text: '아직 찾은 사진이 없어요.\n사진 탭에서 기억나는 장면을 말해 보세요.',

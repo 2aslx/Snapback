@@ -6,6 +6,9 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../models/photo_item.dart';
+import 'preview_store.dart';
+
 /// AI 분석용 이미지 긴 변(px). 서버가 저해상도 모드(detail: low)로 보내므로
 /// 모델이 실제로 보는 최대 크기인 512에 맞춘다 (더 크게 보내도 정확도는 같고 느리기만 함).
 const kAnalyzeSize = 512;
@@ -189,5 +192,30 @@ class ImageProcessor {
       gps: gps,
       takenAt: asset.createDateTime,
     );
+  }
+}
+
+/// 기록 초안용 큰 이미지 (문서 글자를 읽을 수 있게 긴 변 1280px).
+/// iOS 는 사진 보관함 원본에서, 웹은 저장해 둔 1080px 미리보기에서. 없으면 null(분석 정보만 사용).
+Future<String?> recordImageDataUrl(PhotoItem d) async {
+  try {
+    Uint8List? bytes;
+    if (!kIsWeb && d.assetId != null) {
+      final a = await AssetEntity.fromId(d.assetId!);
+      bytes = await a?.thumbnailDataWithOption(
+        ThumbnailOption.ios(
+          size: const ThumbnailSize.square(1280),
+          quality: 82,
+          deliveryMode: DeliveryMode.highQualityFormat,
+          resizeMode: ResizeMode.exact,
+          resizeContentMode: ResizeContentMode.fit,
+        ),
+      );
+    } else if (d.previewKey != null && PreviewStore.enabled) {
+      bytes = await PreviewStore.get(d.previewKey!);
+    }
+    return bytes == null ? null : 'data:image/jpeg;base64,${base64Encode(bytes)}';
+  } catch (_) {
+    return null;
   }
 }

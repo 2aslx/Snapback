@@ -185,4 +185,16 @@ class SnapbackApi {
     final n = data['name'];
     return n is String && n.trim().isNotEmpty ? n.trim() : null;
   }
+
+  /// '기록으로 남기기' 초안. [image] 가 있으면 AI 가 사진 속 글자까지 읽는다.
+  Future<Map<String, dynamic>> draftRecord(
+    PhotoItem photo, {
+    String? image,
+    String? location,
+  }) =>
+      _post('/api/record', {
+        'photo': photo.toJson(includeThumb: false),
+        'image': ?image,
+        if (location != null && location.isNotEmpty) 'location': location,
+      });
 }

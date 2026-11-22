@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/photo_album.dart';
 import '../models/photo_item.dart';
+import '../models/photo_record.dart';
 import '../services/image_processor.dart';
 import '../services/live_activity.dart';
 import '../services/preview_store.dart';
@@ -111,6 +112,7 @@ class SnapbackState extends ChangeNotifier {
   static const _categoriesKey = 'snapback_album_categories';
   static const _placeNamesKey = 'snapback_place_names';
   static const _foundKey = 'snapback_found';
+  static const _recordsKey = 'snapback_records';
   static const _onboardedKey = 'snapback_onboarded';
   static const _queueKey = 'snapback_queue';
 
@@ -206,6 +208,15 @@ class SnapbackState extends ChangeNotifier {
         albums = (jsonDecode(rawAlbums) as List)
             .whereType<Map<String, dynamic>>()
             .map(PhotoAlbum.fromJson)
+            .toList();
+      } catch (_) {}
+    }
+    final rawRecords = prefs.getString(_recordsKey);
+    if (rawRecords != null && rawRecords.isNotEmpty) {
+      try {
+        records = (jsonDecode(rawRecords) as List)
+            .whereType<Map<String, dynamic>>()
+            .map(PhotoRecord.fromJson)
             .toList();
       } catch (_) {}
     }
@@ -393,6 +404,201 @@ class SnapbackState extends ChangeNotifier {
           .catchError((_) {}); // 지도 키 없음 등 → 좌표 그대로 표시
     }
     return null;
+  }
+
+  // ── 기록으로 남기기 (화면 20 기록 다듬기 · 21 나의 기록) ─────────────
+  List<PhotoRecord> records = [];
+
+  /// 지금 다듬는 기록 (새 기록이면 id 0)
+  PhotoRecord? recordDraft;
+  bool recordBusy = false;
+  String? recordError;
+
+  /// AI 초안이 도착할 때마다 증가 → 입력칸을 새 값으로 다시 채움
+  int recordDraftVersion = 0;
+
+  /// 민감정보 저장 동의 체크
+  bool recordConsent = false;
+  int? activeRecordId;
+
+  /// 나의 기록에서 '뒤로' 갈 화면
+  int recordReturn = 19;
+
+  PhotoRecord? recordForPhoto(int photoId) =>
+      records.where((r) => r.photoId == photoId).firstOrNull;
+  PhotoRecord? recordById(int? id) =>
+      records.where((r) => r.id == id).firstOrNull;
+  PhotoItem? photoById(int id) => db.where((d) => d.id == id).firstOrNull;
+
+  /// 사진 상세의 '기록으로 남기기' → 기록 다듬기. AI 가 초안을 만들어 채운다.
+  Future<void> startRecord(int photoId) async {
+    final photo = photoById(photoId);
+    if (photo == null) return;
+    final loc = placeNameFor(photo) ?? '';
+    final hasPlace = photo.place.isNotEmpty && photo.place != '알 수 없음';
+    recordDraft = PhotoRecord(
+      id: 0,
+      photoId: photoId,
+      type: hasPlace || photo.gps != null ? 'place' : 'moment',
+      title: hasPlace ? photo.place : '',
+      location: loc.isNotEmpty ? loc : (hasPlace ? photo.place : ''),
+      date: photo.date,
+      kind: '기타',
+      createdAtMs: 0,
+    );
+    recordConsent = false;
+    recordError = null;
+    recordBusy = serverConnected;
+    recordDraftVersion++;
+    go(20);
+    if (!serverConnected) {
+      recordError = 'AI 서버에 연결되지 않아 직접 입력해 주세요';
+      notifyListeners();
+      return;
+    }
+    try {
+      final image = await recordImageDataUrl(photo);
+      final r = await api.draftRecord(photo, image: image, location: loc);
+      final d = recordDraft;
+      if (d == null || d.photoId != photoId || d.id != 0) return; // 그사이 나감
+      final place = r['place'] is Map ? r['place'] as Map : const {};
+      d.type = (r['type'] ?? d.type).toString();
+      final title = (r['title'] ?? '').toString();
+      final placeName = (place['name'] ?? '').toString();
+      d.title = d.type == 'place' && placeName.isNotEmpty
+          ? placeName
+          : (title.isNotEmpty ? title : d.title);
+      if (r['date'] is String) d.date = r['date'] as String;
+      d.kind = (place['kind'] ?? '기타').toString();
+      if (d.location.isEmpty && placeName.isNotEmpty) d.location = placeName;
+      d.lines = ((r['lines'] as List?) ?? const []).map((e) => '$e').toList();
+      d.summary = (r['summary'] ?? '').toString();
+      d.sensitiveType = r['sensitiveType'] as String?;
+    } on ApiException catch (e) {
+      recordError = '${e.userMessage} · 직접 입력해 주세요';
+    } catch (e) {
+      recordError = 'AI 초안을 만들지 못했어요 · 직접 입력해 주세요';
+    } finally {
+      recordBusy = false;
+      recordDraftVersion++;
+      notifyListeners();
+    }
+  }
+
+  /// 저장된 기록 수정
+  void editRecord(int id) {
+    final r = recordById(id);
+    if (r == null) return;
+    recordDraft = PhotoRecord.fromJson(r.toJson());
+    recordConsent = r.consentAtMs != null;
+    recordError = null;
+    recordBusy = false;
+    recordDraftVersion++;
+    go(20);
+  }
+
+  void setRecordType(String type) {
+    recordDraft?.type = type;
+    notifyListeners();
+  }
+
+  void setRecordConsent(bool v) {
+    recordConsent = v;
+    notifyListeners();
+  }
+
+  /// 민감정보면 동의해야 저장 가능
+  bool get canSaveRecord {
+    final d = recordDraft;
+    if (d == null || recordBusy) return false;
+    return d.sensitiveType == null || recordConsent;
+  }
+
+  /// 같은 날 · 가까운 곳(1.5km)에서 찍은 사진을 '연결된 사진'으로
+  List<int> _linkedFor(PhotoItem p) {
+    final list = visiblePhotos
+        .where(
+          (x) =>
+              x.id != p.id &&
+              (x.date == p.date || _distanceKm(p.gps, x.gps) < 1.5),
+        )
+        .toList()
+      ..sort((a, b) => (a.takenAtMs ?? a.id).compareTo(b.takenAtMs ?? b.id));
+    return list.take(12).map((x) => x.id).toList();
+  }
+
+  /// 기록 저장 → 나의 기록으로
+  void saveRecordDraft() {
+    final d = recordDraft;
+    if (d == null || !canSaveRecord) return;
+    if (d.title.trim().isEmpty) d.title = recordTypeOf(d.type).label;
+    if (d.sensitiveType != null) {
+      d.consentAtMs ??= DateTime.now().millisecondsSinceEpoch;
+    }
+    final photo = photoById(d.photoId);
+    if (d.id == 0) {
+      final id = records.fold<int>(0, (m, r) => r.id > m ? r.id : m) + 1;
+      final rec = PhotoRecord.fromJson({
+        ...d.toJson(),
+        'id': id,
+        'at': DateTime.now().millisecondsSinceEpoch,
+        if (photo != null) 'linked': _linkedFor(photo),
+      });
+      records.insert(0, rec);
+      activeRecordId = id;
+    } else {
+      final i = records.indexWhere((r) => r.id == d.id);
+      if (i >= 0) records[i] = PhotoRecord.fromJson(d.toJson());
+      activeRecordId = d.id;
+    }
+    recordDraft = null;
+    recordReturn = 10;
+    _saveRecords();
+    go(21);
+  }
+
+  /// 기록 다듬기 취소: 새 기록이면 사진 상세로, 수정 중이면 나의 기록으로
+  void cancelRecordDraft() {
+    final d = recordDraft;
+    recordDraft = null;
+    recordBusy = false;
+    if (d != null && d.id != 0) {
+      activeRecordId = d.id;
+      go(21);
+    } else {
+      go(10);
+    }
+  }
+
+  void openRecord(int id) {
+    activeRecordId = id;
+    recordReturn = screen == 21 ? recordReturn : screen;
+    go(21);
+  }
+
+  void toggleRecordFavorite(int id) {
+    final r = recordById(id);
+    if (r == null) return;
+    r.favorite = !r.favorite;
+    notifyListeners();
+    _saveRecords();
+  }
+
+  void deleteRecord(int id) {
+    records.removeWhere((r) => r.id == id);
+    if (activeRecordId == id) activeRecordId = null;
+    notifyListeners();
+    _saveRecords();
+  }
+
+  Future<void> _saveRecords() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _recordsKey,
+        jsonEncode(records.map((r) => r.toJson()).toList()),
+      );
+    } catch (_) {}
   }
 
   final _liveActivity = LiveActivity();

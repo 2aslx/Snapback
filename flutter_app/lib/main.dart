@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'screens/main_screens.dart';
 import 'screens/onboarding_screens.dart';
+import 'screens/record_screens.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 import 'widgets/common_widgets.dart';
@@ -62,7 +63,7 @@ class _SnapbackShell extends StatelessWidget {
   final SnapbackState state;
 
   // .scr.tb — 하단 탭바가 보이는 화면
-  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19};
+  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19, 21};
 
   Widget _buildScreen() {
     switch (state.screen) {
@@ -106,6 +107,10 @@ class _SnapbackShell extends StatelessWidget {
         return Screen18RelatedAlbum(state: state);
       case 19:
         return Screen19Memories(state: state);
+      case 20:
+        return Screen20RecordEdit(state: state);
+      case 21:
+        return Screen21RecordView(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -224,7 +229,7 @@ class _BottomTabBar extends StatelessWidget {
             children: _tabs.map((t) {
               final active =
                   state.screen == t.$1 ||
-                  (t.$1 == 19 && (state.screen == 10 || state.screen == 18)) ||
+                  (t.$1 == 19 && const {10, 18, 20, 21}.contains(state.screen)) ||
                   (t.$1 == 11 && (state.screen == 16 || state.screen == 17));
               final col = active ? c.pri : c.tabMute;
               return Expanded(

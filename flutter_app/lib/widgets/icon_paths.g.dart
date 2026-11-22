@@ -45,6 +45,16 @@ const Map<String, String> kIconPaths = {
   // 뒤로가기 (Flutter 추가)
   'back': '<path d="M15 4.5L7.5 12l7.5 7.5"/>',
   'close': '<path d="M6 6l12 12M18 6L6 18"/>',
+  // 기록 기능 (Flutter 추가)
+  'bookmark': '<path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>',
+  'pencil': '<path d="M4 20l1-4L15.5 5.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M13.5 7.5l3 3"/>',
+  'doc': '<path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+  'shield': '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  'star': '<path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>',
+  'star-fill': '<path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z" fill="currentColor"/>',
+  'more': '<circle cx="12" cy="5.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none"/>',
+  'down': '<path d="M6 9.5l6 6 6-6"/>',
+  'photos': '<rect x="7" y="7" width="13" height="11" rx="2"/><path d="M4 15V6a2 2 0 0 1 2-2h10"/><path d="M7 15l3.5-3.5 3 3 2-2 4.5 4.5"/>',
   'cake': '<path d="M4 19h16v-7L4 9zM4 9l13-4 3 7M4 14h16"/>',
   'bread': '<path d="M5 11a4 4 0 0 1 3-6h8a4 4 0 0 1 3 6v8H5z"/><path d="M9 9v2M13 9v2"/>',
   'bowl': '<path d="M3 11h18a9 9 0 0 1-18 0zM8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4M9 20h6"/>',
