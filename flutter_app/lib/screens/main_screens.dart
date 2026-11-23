@@ -633,11 +633,12 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         ),
     ];
 
-    // 알 수 없는 값('알 수 없음', '없음' 등)은 빼고, 남는 값이 없으면 그 줄 자체를 숨긴다
-    const unknown = {'알 수 없음', '알수없음', '없음', '모름', '불명', '-', 'unknown', 'none', 'null', 'n/a'};
+    // 감지되지 않은 내용('인원수 알 수 없음', '특정 복장 없음' 등)은 쉼표 단위로 빼고,
+    // 남는 내용이 없으면 그 줄 자체를 숨긴다
     String join(Iterable<String> xs) => xs
+        .expand((x) => x.split(RegExp(r'[,，/]')))
         .map((x) => x.trim())
-        .where((x) => x.isNotEmpty && !unknown.contains(x.toLowerCase()))
+        .where((x) => x.isNotEmpty && !isUnknownInfo(x))
         .join(' · ');
     final info = <(String, String, String)>[
       ('calendar', '촬영 날짜·시간', join([item.date, item.time])),

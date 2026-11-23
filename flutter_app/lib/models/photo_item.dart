@@ -306,3 +306,9 @@ List<PhotoItem> buildSeedPhotos() => [
         gps: [37.546, 127.058],
       ),
     ];
+
+/// 사진 정보에서 '감지 안 됨'을 뜻하는 조각인지 (예: '알 수 없음', '특정 복장 없음', '인원수 확인 불가', '0명')
+bool isUnknownInfo(String x) => RegExp(
+      r'(알\s*수\s*없|없음|없다|모름|불명|미상|확인\s*(불가|안\s*됨|되지\s*않)|보이지\s*않|해당\s*없|^0\s*명$|^n/?a$|^unknown|^none$|^null$|^-$)',
+      caseSensitive: false,
+    ).hasMatch(x.trim());

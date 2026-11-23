@@ -36,7 +36,8 @@ async function ask(content) {
 }
 
 // 프롬프트는 서버가 소유 (프론트에서 마음대로 못 바꿈)
-const ANALYZE = '이 사진을 분석해 JSON만 출력(이름·신원 추측 금지): {"caption":"한 문장","food":["음식"],"place":"장소 유형","people":"인원수·옷차림 등 특성","background":"배경","weather":"날씨","time":"낮/저녁/밤/알 수 없음"}';
+// 보이지 않거나 알 수 없는 항목은 "없음"·"알 수 없음"으로 쓰지 말고 비워 두게 한다 (화면에 쓸데없는 줄이 생기지 않게)
+const ANALYZE = '이 사진을 분석해 JSON만 출력(이름·신원 추측 금지). caption 은 항상 사진 내용을 한 문장으로 쓴다(문서·화면이면 무슨 문서인지). 나머지 항목은 사진에서 보이는 것만 적고, 보이지 않거나 판단할 수 없으면 "없음"·"알 수 없음" 대신 빈 문자열("") 또는 빈 배열로 둔다. people 은 사람이 보일 때만 인원수·옷차림을 적는다: {"caption":"한 문장","food":["음식"],"place":"장소 유형","people":"인원수·옷차림 등 특성","background":"배경·주요 사물","weather":"날씨","time":"낮/저녁/밤 중 하나 또는 빈 문자열"}';
 const searchPrompt = (db, hist, extra = '') =>
   '너는 스마트 갤러리 기억 검색 엔진이다. 사진 DB에서 사용자의 흐릿한 기억과 대화 기록에 가장 맞는 사진을 찾아라.\nDB:' + JSON.stringify(db) +
   '\n대화:' + JSON.stringify(hist) +
