@@ -601,6 +601,46 @@ class SnapbackState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── 홈 '다시 꺼내 볼 기억' 카드 ─────────────────────────────
+  /// 오늘 다시 볼 사진 1장과 제목.
+  /// 우선순위: 지난해 같은 날 찍은 사진 → 기록으로 남긴 사진 → 검색으로 찾은 사진 → 장소가 있는 사진.
+  /// 여러 장이면 날짜마다 돌아가며 보여준다.
+  (PhotoItem, String)? resurfaceMemory() {
+    final photos = visiblePhotos.toList();
+    if (photos.isEmpty) return null;
+    final now = DateTime.now();
+    final md = '-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final byId = {for (final d in photos) d.id: d};
+    final tiers = <List<PhotoItem>>[
+      photos.where((d) => d.date.endsWith(md) && !d.date.startsWith('${now.year}')).toList(),
+      [for (final r in records) ?byId[r.photoId]],
+      [for (final f in found) ?byId[f.id]],
+      photos.where((d) => d.place.isNotEmpty && d.place != '알 수 없음').toList(),
+      photos,
+    ];
+    final pool = tiers.firstWhere((t) => t.isNotEmpty);
+    final day = now.difference(DateTime(now.year)).inDays;
+    final pick = pool[day % pool.length];
+    return (pick, memoryTitle(pick));
+  }
+
+  /// 사진 한 장의 짧은 제목: 기록 제목 → '비 오는 날 성수동 카페' 처럼 날씨 + 장소 → 캡션
+  String memoryTitle(PhotoItem d) {
+    final r = recordForPhoto(d.id);
+    if (r != null && r.title.isNotEmpty) return r.title;
+    // '카페(성수동)' → '성수동 카페'
+    final m = RegExp(r'^(.+?)\((.+)\)$').firstMatch(d.place.trim());
+    final place = m != null ? '${m.group(2)} ${m.group(1)}' : d.place.trim();
+    final weather = switch (d.weather) {
+      '비' => '비 오는 날 ',
+      '눈' => '눈 오는 날 ',
+      '맑음' => '맑은 날 ',
+      _ => d.time == '밤' ? '밤의 ' : '',
+    };
+    if (place.isNotEmpty && place != '알 수 없음') return '$weather$place';
+    return d.caption.isNotEmpty ? d.caption : '그날의 사진';
+  }
+
   final _liveActivity = LiveActivity();
 
   /// 상태가 바뀔 때마다 잠금화면 Live Activity 도 같은 진행 상황으로 맞춘다.

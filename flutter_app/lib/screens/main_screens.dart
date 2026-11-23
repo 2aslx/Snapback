@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:material_ui/material_ui.dart';
 
 import '../models/photo_item.dart';
@@ -22,6 +24,7 @@ class Screen5Home extends StatefulWidget {
 class _Screen5HomeState extends State<Screen5Home>
     with SingleTickerProviderStateMixin {
   final _searchBoxKey = GlobalKey();
+  bool _showAll = false; // '모두 보기' — 월별 전체 사진
   // 검색에서 뒤로 왔을 때: 검색창은 이미 제자리, 나머지 내용만 페이드 인
   late final AnimationController _reveal = AnimationController(
     vsync: this,
@@ -118,6 +121,7 @@ class _Screen5HomeState extends State<Screen5Home>
             child: SnapSearchBar(
               key: _searchBoxKey,
               enabled: false,
+              showButton: true,
               hint: '기억나는 장면을 말해 보세요',
             ),
           ),
@@ -131,18 +135,143 @@ class _Screen5HomeState extends State<Screen5Home>
                   icon: 'image',
                   text: '아직 사진이 없어요.\n오른쪽 위 ＋ 를 눌러 사진을 추가해 보세요.',
                 )
-              else
-                for (final k in months) ...[
-                  SnapH3('${k.substring(0, 4)}년 ${int.parse(k.substring(5))}월'),
-                  PhotoGrid(
-                    items: groups[k]!,
-                    onTap: (d) => s.openMemory(d.id),
+              else ...[
+                // 디자인 B3 — 다시 꺼내 볼 기억
+                if (s.resurfaceMemory() case (final photo, final title))
+                  _MemoryCard(
+                    photo: photo,
+                    title: title,
+                    onTap: () => s.openMemory(photo.id),
                   ),
-                ],
+                // 최근 사진 · 모두 보기
+                Padding(
+                  padding: const EdgeInsets.only(top: 26, bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _showAll ? '모든 사진' : '최근 사진',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.4,
+                            color: context.sc.ink,
+                          ),
+                        ),
+                      ),
+                      if (photos.length > 9)
+                        Pressable(
+                          onTap: () => setState(() => _showAll = !_showAll),
+                          child: Text(
+                            _showAll ? '접기' : '모두 보기',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: context.sc.pk,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (!_showAll)
+                  PhotoGrid(
+                    items: photos.take(9).toList(),
+                    onTap: (d) => s.openMemory(d.id),
+                  )
+                else
+                  for (final k in months) ...[
+                    SnapH3(
+                      '${k.substring(0, 4)}년 ${int.parse(k.substring(5))}월',
+                      small: true,
+                    ),
+                    PhotoGrid(
+                      items: groups[k]!,
+                      onTap: (d) => s.openMemory(d.id),
+                    ),
+                  ],
+              ],
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 디자인 B3 — 홈 '다시 꺼내 볼 기억' 큰 카드 (사진 + 아래쪽 반투명 이름표)
+class _MemoryCard extends StatelessWidget {
+  const _MemoryCard({required this.photo, required this.title, this.onTap});
+  final PhotoItem photo;
+  final String title;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    final p = photo.date.split('-');
+    final when = p.length == 3 ? ' · ${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일' : '';
+    return Pressable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: SizedBox(
+          height: 168,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              PhotoTile(item: photo, radius: 26, showDate: false, iconSize: 0.01),
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
+                      decoration: BoxDecoration(
+                        color: c.bg.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 0.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '다시 꺼내 볼 기억$when',
+                                  style: TextStyle(fontSize: 13, color: c.pk),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.4,
+                                    color: c.ink,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SnapIcon('arrow', size: 22, color: c.ink),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -684,12 +813,12 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
             Bleed(
               child: GridView.builder(
                 shrinkWrap: true,
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
-                  mainAxisSpacing: 2,
-                  crossAxisSpacing: 2,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
                 ),
                 itemCount: photos.length,
                 itemBuilder: (_, i) => GestureDetector(
@@ -701,7 +830,7 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
                         opacity: 0.7,
                         child: PhotoTile(
                           item: photos[i],
-                          radius: 0,
+                          radius: 16,
                           showDate: false,
                         ),
                       ),

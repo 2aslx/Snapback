@@ -354,12 +354,13 @@ class _MiniProgressCard extends StatelessWidget {
       color: c.ink,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
+    // 디자인 B3 — 흰 반투명 카드: 캐릭터 · 상태 · 개수/퍼센트 · 주황 진행선 · 검은 일시정지 버튼
     return GestureDetector(
       onTap: () => s.go(4), // 자세히 보기 (선택)
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(30),
           color: c.bar,
           border: Border.all(color: c.line, width: 0.5),
           boxShadow: const [
@@ -372,72 +373,47 @@ class _MiniProgressCard extends StatelessWidget {
         ),
         child: Row(
           children: [
+            SnapRunner(width: 40, mode: v.mode),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: status,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          status,
+                          style: white.copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                        TextSpan(text: ' · ${_n(v.dn)} / ${_n(v.tot)}장'),
-                      ],
-                    ),
-                    style: white.copyWith(fontSize: 14),
-                  ),
-                  // .mtrk — 트랙 + 미니 러너
-                  LayoutBuilder(
-                    builder: (_, k) => SizedBox(
-                      height: 30,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 4,
-                            child: SnapBar(
-                              value: v.p,
-                              height: 4,
-                              background: c.fill,
-                              color: c.pri,
-                            ),
-                          ),
-                          AnimatedPositioned(
-                            duration: const Duration(milliseconds: 600),
-                            left: (k.maxWidth - 26) * v.p,
-                            bottom: 5,
-                            child: SnapRunner(
-                              width: 26,
-                              mode: v.mode,
-                            ),
-                          ),
-                        ],
                       ),
-                    ),
+                      Text(
+                        '${_n(v.dn)} / ${_n(v.tot)} · ${v.pct}%',
+                        style: white.copyWith(fontSize: 14, color: c.mute),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SnapBar(
+                    value: v.p,
+                    height: 5,
+                    background: c.fill,
+                    color: c.pri,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 10),
-            Text(
-              '${v.pct}%',
-              style: white.copyWith(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: c.pk,
-              ),
-            ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
             if (!v.done)
               Pressable(
                 onTap: s.togglePauseAnalysis,
                 child: Container(
-                  width: 36,
-                  height: 36,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: c.ink,
                     shape: BoxShape.circle,

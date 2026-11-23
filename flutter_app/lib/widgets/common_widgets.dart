@@ -274,14 +274,13 @@ class TitleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
+    // 디자인 B3 — 배경 없는 검은 선 아이콘 (누르는 영역은 40×40)
     return Pressable(
       onTap: onTap,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(color: c.fill, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: SnapIcon(icon, size: 21.85, color: c.pk),
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(child: SnapIcon(icon, size: 26, color: c.ink)),
       ),
     );
   }
@@ -729,8 +728,11 @@ class SnapSearchBar extends StatelessWidget {
     this.onSubmit,
     this.onChanged,
     this.keyboardType,
+    this.showButton = false,
   });
 
+  /// enabled 가 false(누르면 이동하는 표시용 바)여도 오른쪽 주황 화살표를 보여줌 (홈 검색창)
+  final bool showButton;
   final TextEditingController? controller;
   final FocusNode? focusNode;
   final String hint;
@@ -763,13 +765,13 @@ class SnapSearchBar extends StatelessWidget {
       ),
     );
     return Container(
-      constraints: const BoxConstraints(minHeight: 52),
-      padding: enabled
-          ? const EdgeInsets.fromLTRB(18, 5, 5, 5)
-          : const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: enabled || showButton
+          ? const EdgeInsets.fromLTRB(20, 6, 6, 6)
+          : const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
       decoration: BoxDecoration(
         color: c.card,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Row(
         children: [
@@ -780,15 +782,15 @@ class SnapSearchBar extends StatelessWidget {
           Expanded(
             child: IgnorePointer(ignoring: !enabled, child: field),
           ),
-          if (enabled) ...[
+          if (enabled || showButton) ...[
             const SizedBox(width: 7),
             Pressable(
-              onTap: onSubmit,
+              onTap: enabled ? onSubmit : null,
               child: Opacity(
                 opacity: busy ? 0.5 : 1,
                 child: Container(
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: c.pri,
                     shape: BoxShape.circle,
@@ -921,24 +923,23 @@ class PhotoGrid extends StatelessWidget {
   final List<PhotoItem> items;
   final void Function(PhotoItem)? onTap;
 
+  // 디자인 B3 — 둥근 모서리 타일 3열, 사이 간격 6
   @override
-  Widget build(BuildContext context) => Bleed(
-    child: GridView.builder(
-      shrinkWrap: true,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 2,
-        crossAxisSpacing: 2,
-      ),
-      itemCount: items.length,
-      itemBuilder: (_, i) => PhotoTile(
-        item: items[i],
-        radius: 0,
-        showDate: false,
-        onTap: onTap == null ? null : () => onTap!(items[i]),
-      ),
+  Widget build(BuildContext context) => GridView.builder(
+    shrinkWrap: true,
+    padding: EdgeInsets.zero,
+    physics: const NeverScrollableScrollPhysics(),
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 3,
+      mainAxisSpacing: 6,
+      crossAxisSpacing: 6,
+    ),
+    itemCount: items.length,
+    itemBuilder: (_, i) => PhotoTile(
+      item: items[i],
+      radius: 16,
+      showDate: false,
+      onTap: onTap == null ? null : () => onTap!(items[i]),
     ),
   );
 }
