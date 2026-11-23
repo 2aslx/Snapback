@@ -222,11 +222,21 @@ class SnapbackTopBar extends StatelessWidget {
   }
 }
 
-/// .lt .large — 큰 제목(34/800) + 원형 버튼(.tbtn)들
+/// .lt .large — 큰 제목(기본 30/700, Inter) + 왼쪽 캐릭터(선택) + 원형 버튼(.tbtn)들
 class LargeTitle extends StatelessWidget {
-  const LargeTitle({super.key, required this.title, this.actions = const []});
+  const LargeTitle({
+    super.key,
+    required this.title,
+    this.actions = const [],
+    this.leading,
+    this.fontSize = 30,
+    this.fontWeight = FontWeight.w700,
+  });
   final String title;
   final List<Widget> actions;
+  final Widget? leading;
+  final double fontSize;
+  final FontWeight fontWeight;
 
   @override
   Widget build(BuildContext context) {
@@ -235,13 +245,14 @@ class LargeTitle extends StatelessWidget {
       padding: const EdgeInsets.only(top: 4, bottom: 10),
       child: Row(
         children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 6)],
           Expanded(
             child: Text(
               title,
               style: TextStyle(
-                fontSize: 34,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.8,
+                fontSize: fontSize,
+                fontWeight: fontWeight,
+                letterSpacing: fontSize > 24 ? -0.8 : -0.3,
                 height: 1.1,
                 color: c.ink,
               ),
@@ -752,13 +763,13 @@ class SnapSearchBar extends StatelessWidget {
       ),
     );
     return Container(
-      constraints: const BoxConstraints(minHeight: 40),
+      constraints: const BoxConstraints(minHeight: 52),
       padding: enabled
-          ? const EdgeInsets.fromLTRB(12, 4, 4, 4)
-          : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ? const EdgeInsets.fromLTRB(18, 5, 5, 5)
+          : const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
       decoration: BoxDecoration(
-        color: c.fill,
-        borderRadius: BorderRadius.circular(12),
+        color: c.card,
+        borderRadius: BorderRadius.circular(26),
       ),
       child: Row(
         children: [
@@ -776,8 +787,8 @@ class SnapSearchBar extends StatelessWidget {
               child: Opacity(
                 opacity: busy ? 0.5 : 1,
                 child: Container(
-                  width: 32,
-                  height: 32,
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
                     color: c.pri,
                     shape: BoxShape.circle,

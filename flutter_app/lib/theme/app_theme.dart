@@ -28,18 +28,19 @@ class SnapbackColors extends ThemeExtension<SnapbackColors> {
   final Color bar;
   final Color tabMute;
 
+  // 디자인 B3 · 화이트 오렌지: 하얀 배경 + 오렌지 포인트, 카드·입력창은 아주 옅은 회색
   static const light = SnapbackColors(
-    bg: Color(0xFFF4F1ED),
-    card: Color(0xFFFFFFFF),
-    ink: Color(0xFF1C1C1E),
-    mute: Color(0xFF8A847E),
-    line: Color(0x293C3C43), // rgba(60,60,67,.16)
-    fill: Color(0x1F786E64), // rgba(120,110,100,.12)
-    soft: Color(0xFFFDEEE2),
-    pri: Color(0xFFE8793A),
-    pk: Color(0xFFC9601F),
-    bar: Color(0xDBFAF8F6), // rgba(250,248,246,.86)
-    tabMute: Color(0xFF9A948E),
+    bg: Color(0xFFFFFFFF),
+    card: Color(0xFFF6F5F3),
+    ink: Color(0xFF1C1714),
+    mute: Color(0xFF77706A),
+    line: Color(0x14000000), // rgba(0,0,0,.08)
+    fill: Color(0x0D000000), // rgba(0,0,0,.05)
+    soft: Color(0xFFFFF0E6),
+    pri: Color(0xFFF26B1D),
+    pk: Color(0xFFC9520F),
+    bar: Color(0xD9FFFFFF), // rgba(255,255,255,.85)
+    tabMute: Color(0xFF8E8780),
   );
 
   static const dark = SnapbackColors(
@@ -49,9 +50,9 @@ class SnapbackColors extends ThemeExtension<SnapbackColors> {
     mute: Color(0xFF98989F),
     line: Color(0x8C545458), // rgba(84,84,88,.55)
     fill: Color(0x3D767680), // rgba(118,118,128,.24)
-    soft: Color(0xFF33241A),
-    pri: Color(0xFFE8793A),
-    pk: Color(0xFFF4A574),
+    soft: Color(0xFF3A2414),
+    pri: Color(0xFFF26B1D),
+    pk: Color(0xFFFF9A5C),
     bar: Color(0xDB161618), // rgba(22,22,24,.86)
     tabMute: Color(0xFF9A948E),
   );
@@ -92,21 +93,26 @@ LinearGradient _g(int a, int b) => LinearGradient(
     );
 
 final List<LinearGradient> kTileGradients = [
-  _g(0xFFF6C7A1, 0xFFE2896A),
-  _g(0xFFCFDCB4, 0xFF8FA77A),
-  _g(0xFFF3D58A, 0xFFD39A4F),
-  _g(0xFFF6BF95, 0xFFD9653A),
-  _g(0xFFF6CDC4, 0xFFD98A85),
-  _g(0xFFC2D8D6, 0xFF7FA3A8),
+  _g(0xFFFFE1C9, 0xFFFF9E63),
+  _g(0xFFFBEEDB, 0xFFF2C48F),
+  _g(0xFFF8DDD5, 0xFFEC9F8A),
+  _g(0xFFFFE6D2, 0xFFFFAD75),
+  _g(0xFFEFECE8, 0xFFCFC6BC),
+  _g(0xFFFFDCC4, 0xFFF98D55),
 ];
 
-/// 본문 글꼴: -apple-system 계열, letter-spacing -.2px.
+/// 글꼴: 영문·숫자는 Inter(assets/fonts), 한글은 iOS 기본(Apple SD Gothic Neo) → Pretendard → Noto Sans KR.
+const kFontFamily = 'Inter';
 const kFontFallback = ['Apple SD Gothic Neo', 'Pretendard', 'Noto Sans KR'];
 
 ThemeData buildSnapbackTheme(Brightness brightness) {
   final c =
       brightness == Brightness.dark ? SnapbackColors.dark : SnapbackColors.light;
-  final base = ThemeData(brightness: brightness, useMaterial3: true);
+  final base = ThemeData(
+    brightness: brightness,
+    useMaterial3: true,
+    fontFamily: kFontFamily,
+  );
   return base.copyWith(
     scaffoldBackgroundColor: c.bg,
     colorScheme: ColorScheme.fromSeed(
