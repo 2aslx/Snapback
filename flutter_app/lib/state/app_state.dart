@@ -670,7 +670,28 @@ class SnapbackState extends ChangeNotifier {
   Rect? _searchOrigin;
 
   /// 홈 검색창([origin] 위치)에서 검색 화면으로: 창이 그 자리에서 내려오도록 위치를 넘긴다.
+  /// 새 검색: 이전 검색어·결과·질문을 모두 비운다 (홈·기억 탭에서 검색을 새로 열 때)
+  int _searchRunId = 0;
+  void resetSearch() {
+    _searchRunId++; // 진행 중이던 검색 결과는 무시
+    searchHistory.clear();
+    searchResults = [];
+    activeQuestion = null;
+    currentQuestionText = '';
+    questionShown = false;
+    searchCompleted = false;
+    searchError = null;
+    searchBusy = false;
+  }
+
+  /// 홈·기억 탭에서 '새 검색'으로 검색 화면 열기
+  void openNewSearch() {
+    resetSearch();
+    go(13);
+  }
+
   void openSearchFrom(Rect origin) {
+    resetSearch();
     _searchOrigin = origin;
     screen = 13;
     seamlessSwitch = true;
@@ -1233,12 +1254,14 @@ class SnapbackState extends ChangeNotifier {
     questionShown = false;
     notifyListeners();
 
+    final run = _searchRunId;
     try {
       final res = await api.searchMemory(
         visiblePhotos,
         searchHistory,
         wantQuestion: wantQuestion,
       );
+      if (run != _searchRunId) return; // 그사이 새 검색을 시작함
       searchResults = res.ranked.take(5).toList();
       if (testSession != null && testSession!.firstRank == null) {
         final idx = searchResults.indexWhere(
@@ -1255,12 +1278,15 @@ class SnapbackState extends ChangeNotifier {
       }
       questionShown = wantQuestion;
     } on ApiException catch (e) {
-      searchError = e.userMessage;
+      if (run == _searchRunId) searchError = e.userMessage;
     } catch (e) {
-      searchError = '오류가 났어요 ($e)';
+      if (run == _searchRunId) searchError = '오류가 났어요 ($e)';
     } finally {
-      searchBusy = false;
-      notifyListeners();
+      // 이미 새 검색이 시작됐다면 그 검색의 상태는 건드리지 않는다
+      if (run == _searchRunId) {
+        searchBusy = false;
+        notifyListeners();
+      }
     }
   }
 

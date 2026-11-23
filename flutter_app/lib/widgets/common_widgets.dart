@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:typed_data';
@@ -751,6 +752,8 @@ class SnapSearchBar extends StatelessWidget {
     final field = TextField(
       controller: controller,
       focusNode: focusNode,
+      // 입력칸 밖(화면 다른 곳)을 누르면 키보드를 내린다
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       readOnly: !enabled,
       keyboardType: keyboardType,
       textInputAction: TextInputAction.search,
@@ -1407,4 +1410,150 @@ class AlbumCardGrid extends StatelessWidget {
         ),
     ],
   );
+}
+
+/// 오른쪽 스크롤 바 + 날짜 말풍선 (사진 보관함 그리드용).
+/// 손잡이를 끌거나 막대를 눌러 원하는 위치로 바로 이동하고, 스크롤하는 동안 [labelAt] 이 준
+/// 날짜(그 위치에 보이는 사진의 촬영 날짜)를 손잡이 옆에 띄운다. 멈추면 잠시 뒤 말풍선만 사라진다.
+class DateScrollbar extends StatefulWidget {
+  const DateScrollbar({super.key, required this.controller, required this.labelAt});
+  final ScrollController controller;
+  final String Function(double offset) labelAt;
+
+  @override
+  State<DateScrollbar> createState() => _DateScrollbarState();
+}
+
+class _DateScrollbarState extends State<DateScrollbar> {
+  static const _thumbH = 46.0;
+  bool _dragging = false;
+  bool _showLabel = true; // 처음 열었을 때도 잠깐 보여줌
+  Timer? _hide;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    _scheduleHide();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    setState(() => _showLabel = true);
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hide?.cancel();
+    _hide = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted && !_dragging) setState(() => _showLabel = false);
+    });
+  }
+
+  void _jumpTo(double dy, double trackH) {
+    final p = widget.controller.position;
+    final frac = ((dy - _thumbH / 2) / (trackH - _thumbH)).clamp(0.0, 1.0);
+    widget.controller.jumpTo(frac * p.maxScrollExtent);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    return LayoutBuilder(
+      builder: (context, k) {
+        final ctl = widget.controller;
+        if (!ctl.hasClients || !ctl.position.hasContentDimensions) {
+          // 첫 프레임: 크기를 안 뒤 다시 그림
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+          return const SizedBox.shrink();
+        }
+        final p = ctl.position;
+        if (p.maxScrollExtent <= 0) return const SizedBox.shrink();
+        final h = k.maxHeight;
+        final frac = (p.pixels / p.maxScrollExtent).clamp(0.0, 1.0);
+        final top = (h - _thumbH) * frac;
+        return Stack(
+          children: [
+            // 누르거나 끌 수 있는 막대 영역 (오른쪽 28)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: 28,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: (d) {
+                  setState(() => _dragging = true);
+                  _jumpTo(d.localPosition.dy, h);
+                },
+                onVerticalDragUpdate: (d) => _jumpTo(d.localPosition.dy, h),
+                onVerticalDragEnd: (_) {
+                  setState(() => _dragging = false);
+                  _scheduleHide();
+                },
+                onTapDown: (d) => _jumpTo(d.localPosition.dy, h),
+              ),
+            ),
+            // 손잡이
+            Positioned(
+              right: 3,
+              top: top,
+              child: IgnorePointer(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: _dragging ? 8 : 6,
+                  height: _thumbH,
+                  decoration: BoxDecoration(
+                    color: _dragging ? c.pri : c.ink.withValues(alpha: 0.38),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+            // 날짜 말풍선
+            Positioned(
+              right: 18,
+              top: top + _thumbH / 2 - 16,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _showLabel || _dragging ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: c.bg,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x26000000), blurRadius: 10, offset: Offset(0, 2)),
+                      ],
+                    ),
+                    child: Text(
+                      widget.labelAt(p.pixels),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: c.ink,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

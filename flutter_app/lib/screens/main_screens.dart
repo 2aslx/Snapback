@@ -46,7 +46,7 @@ class _Screen5HomeState extends State<Screen5Home>
 
   void _openSearch(SnapbackState s) {
     final box = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return s.go(13);
+    if (box == null || !box.hasSize) return s.openNewSearch();
     final top = box.localToGlobal(Offset.zero);
     // 스크롤 0 기준 위치를 기억해 두면, 돌아올 때(맨 위에서 시작) 이 자리로 올라온다
     final scrolled = Scrollable.maybeOf(context)?.position.pixels ?? 0;
@@ -596,7 +596,7 @@ class Screen10MemoryDetail extends StatefulWidget {
 }
 
 class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
-  bool _infoOpen = true;
+  bool _infoOpen = false; // 사진 정보는 기본으로 접힘
   int? _shownId;
 
   @override
@@ -608,8 +608,8 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       orElse: () => s.db.first,
     );
     if (_shownId != item.id) {
-      _shownId = item.id; // 다른 사진으로 이동하면 정보는 다시 펼친 상태
-      _infoOpen = true;
+      _shownId = item.id; // 다른 사진으로 이동하면 정보는 다시 접힌 상태
+      _infoOpen = false;
     }
     final rel = s.relatedFor(item);
     final record = s.recordForPhoto(item.id);
@@ -787,7 +787,7 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
             icon: 'heart',
             text: '아직 찾은 사진이 없어요.\n사진 탭에서 기억나는 장면을 말해 보세요.',
           ),
-          SnapButton(label: '기억으로 찾기', icon: 'search', onTap: () => s.go(13)),
+          SnapButton(label: '기억으로 찾기', icon: 'search', onTap: s.openNewSearch),
         ] else ...[
           SnapSub(
             _editing

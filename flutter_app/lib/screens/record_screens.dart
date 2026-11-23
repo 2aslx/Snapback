@@ -655,6 +655,8 @@ class _Input extends StatelessWidget {
     final c = context.sc;
     final field = TextField(
       controller: controller,
+      // 입력칸 밖(화면 다른 곳)을 누르면 키보드를 내린다
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       minLines: lines,
       maxLines: lines == 1 ? 1 : lines + 4,
       style: TextStyle(fontSize: 16, height: 1.45, color: c.ink),

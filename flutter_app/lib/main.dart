@@ -159,18 +159,25 @@ class _SnapbackShell extends StatelessWidget {
                           ),
                           child: child,
                         ),
-                        child: SingleChildScrollView(
-                          key: ValueKey(state.screen),
-                          padding: EdgeInsets.fromLTRB(
-                            16,
-                            14,
-                            16,
-                            showTabs
-                                ? (miniVisible ? 180 : 104) + bottomInset
-                                : 36 + bottomInset,
-                          ),
-                          child: _buildScreen(),
-                        ),
+                        // 사진 보관함 고르기(2, iOS)는 그리드가 직접 스크롤 → 바깥 스크롤 없이 높이 고정
+                        child: state.screen == 2 && state.useLibrary
+                            ? Padding(
+                                key: ValueKey(state.screen),
+                                padding: EdgeInsets.fromLTRB(16, 14, 16, 16 + bottomInset),
+                                child: _buildScreen(),
+                              )
+                            : SingleChildScrollView(
+                                key: ValueKey(state.screen),
+                                padding: EdgeInsets.fromLTRB(
+                                  16,
+                                  14,
+                                  16,
+                                  showTabs
+                                      ? (miniVisible ? 180 : 104) + bottomInset
+                                      : 36 + bottomInset,
+                                ),
+                                child: _buildScreen(),
+                              ),
                       ),
                     ),
                   ),

@@ -506,113 +506,168 @@ class _RingPainter extends CustomPainter {
 }
 
 /// iOS ②′ 사진 직접 고르기 — 사진 보관함 그리드에서 눌러서 선택 (.ph.sel)
-class _LibraryPicker extends StatelessWidget {
+class _LibraryPicker extends StatefulWidget {
   const _LibraryPicker({required this.state});
   final SnapbackState state;
 
   @override
+  State<_LibraryPicker> createState() => _LibraryPickerState();
+}
+
+class _LibraryPickerState extends State<_LibraryPicker> {
+  final _scroll = ScrollController();
+  static const _cols = 3;
+  static const _gap = 4.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_maybeLoadMore);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// 끝에 가까워지면 다음 사진 묶음을 불러온다 ('더 보기' 대신)
+  void _maybeLoadMore() {
+    final s = widget.state;
+    if (!_scroll.hasClients || !s.pickerHasMore || s.pickerLoading) return;
+    final p = _scroll.position;
+    if (p.pixels > p.maxScrollExtent - 600) s.loadPickerAssets(more: true);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final s = state;
+    final s = widget.state;
     final c = context.sc;
     if (s.pickerAssets.isEmpty && !s.pickerLoading && !s.libraryDenied) {
       Future.microtask(s.loadPickerAssets);
     }
     final n = s.pickedAssetIds.length;
     final dpr = MediaQuery.devicePixelRatioOf(context);
+    final top = SnapbackTopBar(
+      title: '사진 선택',
+      onBack: () => s.go(1),
+      trailing: Text('$n장', style: TextStyle(fontSize: 12, color: c.pk)),
+    );
+    if (s.libraryDenied) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          top,
+          const SnapWarn('사진 보관함 접근이 허용되지 않았어요.'),
+          SnapButton(label: '설정 열기', ghost: true, onTap: s.openLibrarySettings),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(
-          title: '사진 선택',
-          onBack: () => s.go(1),
-          trailing: Text('$n장', style: TextStyle(fontSize: 12, color: c.pk)),
+        top,
+        const Padding(
+          padding: EdgeInsets.only(top: 6, bottom: 10),
+          child: SnapSub('분석할 사진을 눌러서 고르세요.'),
         ),
-        if (s.libraryDenied) ...[
-          const SnapWarn('사진 보관함 접근이 허용되지 않았어요.'),
-          SnapButton(label: '설정 열기', ghost: true, onTap: s.openLibrarySettings),
-        ] else ...[
-          const Padding(
-            padding: EdgeInsets.only(top: 6, bottom: 10),
-            child: SnapSub('분석할 사진을 눌러서 고르세요.'),
-          ),
-          GridView.builder(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 4,
-              crossAxisSpacing: 4,
-            ),
-            itemCount: s.pickerAssets.length,
-            itemBuilder: (_, i) {
-              final a = s.pickerAssets[i];
-              final on = s.pickedAssetIds.contains(a.id);
-              return GestureDetector(
-                onTap: () => s.togglePickAsset(a.id),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(11),
-                      child: Image(
-                        image: AssetEntityImageProvider(
-                          a,
-                          isOriginal: false,
-                          thumbnailSize: ThumbnailSize.square(
-                            (130 * dpr).round(),
-                          ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, k) {
+              // 한 줄 높이 (정사각형 타일 + 간격) → 스크롤 위치에서 보고 있는 사진 찾기
+              final row = (k.maxWidth - _gap * (_cols - 1)) / _cols + _gap;
+              return Stack(
+                children: [
+                  GridView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.only(bottom: 12),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _cols,
+                          mainAxisSpacing: _gap,
+                          crossAxisSpacing: _gap,
                         ),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => ColoredBox(color: c.fill),
+                    itemCount: s.pickerAssets.length,
+                    itemBuilder: (_, i) => _tile(s, c, s.pickerAssets[i], dpr),
+                  ),
+                  if (s.pickerAssets.isNotEmpty)
+                    Positioned.fill(
+                      child: DateScrollbar(
+                        controller: _scroll,
+                        labelAt: (offset) {
+                          final i = ((offset / row).floor() * _cols).clamp(
+                            0,
+                            s.pickerAssets.length - 1,
+                          );
+                          final d = s.pickerAssets[i].createDateTime;
+                          return '${d.year}년 ${d.month}월 ${d.day}일';
+                        },
                       ),
                     ),
-                    if (on)
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(11),
-                          border: Border.all(color: c.pri, width: 3),
-                        ),
-                      ),
-                    Positioned(
-                      top: 4,
-                      right: 5,
-                      child: Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          color: on ? c.pri : const Color(0x99FFFFFF),
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: on
-                            ? const SnapIcon(
-                                'check',
-                                size: 12,
-                                color: Colors.white,
-                                strokeWidth: 2.6,
-                              )
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               );
             },
           ),
-          if (s.pickerLoading) const SnapNote('사진을 불러오는 중…'),
-          if (s.pickerHasMore && !s.pickerLoading)
-            SnapButton(
-              label: '더 보기',
-              ghost: true,
-              onTap: () => s.loadPickerAssets(more: true),
+        ),
+        if (s.pickerLoading) const SnapNote('사진을 불러오는 중…', top: 4),
+        SnapButton(
+          label: n == 0 ? '사진을 골라 주세요' : '선택 완료 ($n장)',
+          top: 10,
+          onTap: n == 0 ? null : s.confirmPickedAssets,
+        ),
+      ],
+    );
+  }
+
+  Widget _tile(SnapbackState s, SnapbackColors c, AssetEntity a, double dpr) {
+    final on = s.pickedAssetIds.contains(a.id);
+    return GestureDetector(
+      onTap: () => s.togglePickAsset(a.id),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: Image(
+              image: AssetEntityImageProvider(
+                a,
+                isOriginal: false,
+                thumbnailSize: ThumbnailSize.square((130 * dpr).round()),
+              ),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => ColoredBox(color: c.fill),
             ),
-          SnapButton(
-            label: n == 0 ? '사진을 골라 주세요' : '선택 완료 ($n장)',
-            onTap: n == 0 ? null : s.confirmPickedAssets,
+          ),
+          if (on)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: c.pri, width: 3),
+              ),
+            ),
+          Positioned(
+            top: 4,
+            right: 5,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: on ? c.pri : const Color(0x99FFFFFF),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: on
+                  ? const SnapIcon(
+                      'check',
+                      size: 12,
+                      color: Colors.white,
+                      strokeWidth: 2.6,
+                    )
+                  : null,
+            ),
           ),
         ],
-      ],
+      ),
     );
   }
 }
