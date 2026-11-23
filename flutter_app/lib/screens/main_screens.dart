@@ -4,6 +4,7 @@ import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/snap_runner.dart';
 import '../widgets/photo_image.dart';
 import 'record_screens.dart';
 
@@ -27,13 +28,6 @@ class _Screen5HomeState extends State<Screen5Home>
     duration: const Duration(milliseconds: 260),
     value: 1,
   );
-
-  static const _sugg = [
-    ('작년 여름 바닷가', '작년 여름에 바닷가에서 찍은 사진'),
-    ('친구들이랑 고기', '친구들이랑 고기 먹었던 날 사진'),
-    ('밤에 한강', '밤에 한강에서 찍은 사진'),
-    ('빨간 옷, 카페', '빨간 옷 입고 카페에서 찍었던 사진'),
-  ];
 
   @override
   void initState() {
@@ -80,6 +74,9 @@ class _Screen5HomeState extends State<Screen5Home>
         _faded(
           LargeTitle(
             title: 'Snapback',
+            leading: const SnapCharacter(size: 34),
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
             actions: [
               TitleButton(
                 icon: 'plus',
@@ -87,6 +84,30 @@ class _Screen5HomeState extends State<Screen5Home>
               ),
               TitleButton(icon: 'gear', onTap: () => s.go(12)),
             ],
+          ),
+        ),
+        // 디자인 B3 — 큰 안내 문구 (두 번째 줄만 오렌지)
+        _faded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 14, 0, 18),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: '어떤 순간을\n'),
+                  TextSpan(
+                    text: '찾고 있나요?',
+                    style: TextStyle(color: context.sc.pri),
+                  ),
+                ],
+              ),
+              style: TextStyle(
+                fontSize: 32,
+                height: 1.18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -1.2,
+                color: context.sc.ink,
+              ),
+            ),
           ),
         ),
         // 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
@@ -105,29 +126,6 @@ class _Screen5HomeState extends State<Screen5Home>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // .sugg — 가로 스크롤 추천 칩 (가장자리까지)
-              Padding(
-                padding: EdgeInsets.zero,
-                child: Bleed(
-                  child: SizedBox(
-                    height: 34,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _sugg.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 7),
-                      itemBuilder: (_, i) => SnapChip(
-                        label: _sugg[i].$1,
-                        card: true,
-                        onTap: () {
-                          s.go(13);
-                          s.startNewSearch(_sugg[i].$2);
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
               if (months.isEmpty)
                 const SnapEmpty(
                   icon: 'image',
