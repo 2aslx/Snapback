@@ -474,7 +474,67 @@ class Screen4Progress extends StatelessWidget {
         ),
         SnapButton(label: '분석된 사진 먼저 보기', onTap: () => s.go(5)),
         const SnapNote('중단돼도 완료한 지점부터 이어서 분석해요 · 잠금화면에서 진행률 확인'),
+        // 맨 아래: 분석 취소 (실수 방지로 두 번 눌러야 함)
+        if (!v.done && v.tot > 0) _CancelAnalysisButton(state: s),
       ],
+    );
+  }
+}
+
+class _CancelAnalysisButton extends StatefulWidget {
+  const _CancelAnalysisButton({required this.state});
+  final SnapbackState state;
+
+  @override
+  State<_CancelAnalysisButton> createState() => _CancelAnalysisButtonState();
+}
+
+class _CancelAnalysisButtonState extends State<_CancelAnalysisButton> {
+  bool _confirm = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    final left = widget.state.analysisTotal - widget.state.analysisDone;
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(
+        children: [
+          Pressable(
+            onTap: () {
+              if (_confirm) {
+                widget.state.cancelAnalysis();
+              } else {
+                setState(() => _confirm = true);
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 50),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _confirm ? const Color(0xFFD93A2B) : null,
+                borderRadius: BorderRadius.circular(14),
+                border: _confirm ? null : Border.all(color: const Color(0xFFD93A2B)),
+              ),
+              child: Text(
+                _confirm ? '한 번 더 누르면 분석이 취소돼요' : '분석 취소',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: _confirm ? Colors.white : const Color(0xFFD93A2B),
+                ),
+              ),
+            ),
+          ),
+          SnapNote(
+            _confirm
+                ? '남은 $left장은 분석하지 않아요 · 이미 분석한 사진은 그대로 남아요'
+                : '이미 분석한 사진은 지워지지 않아요',
+            color: c.mute,
+          ),
+        ],
+      ),
     );
   }
 }

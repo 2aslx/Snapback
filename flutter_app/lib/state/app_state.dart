@@ -1191,6 +1191,23 @@ class SnapbackState extends ChangeNotifier {
     }
   }
 
+  /// 분석 취소: 진행을 멈추고 남은 대기열을 비운다. 이미 분석한 사진(DB)은 그대로 둔다.
+  void cancelAnalysis() {
+    _runId++; // 돌고 있는 분석 루프 중단 (요청 중인 1장은 끝나면 저장만 됨)
+    pickQueue.clear();
+    pickedAssetIds.clear();
+    analysisRunning = false;
+    analysisPaused = false;
+    analysisFinished = false;
+    analysisTotal = 0;
+    analysisDone = 0;
+    etaMs = 0;
+    currentFileDate = null;
+    _clearQueue();
+    _liveActivity.cancel();
+    go(5);
+  }
+
   void togglePauseAnalysis() {
     analysisPaused = !analysisPaused;
     if (!analysisPaused && pickQueue.isNotEmpty) {

@@ -39,4 +39,12 @@ class LiveActivity {
       _ch.invokeMethod('update', args).catchError((_) {});
     }
   }
+
+  /// 분석 취소: 잠금화면 표시를 바로 닫는다.
+  void cancel() {
+    if (!supported || !_active) return;
+    _active = false;
+    _sent = null;
+    _ch.invokeMethod('cancel').catchError((_) {});
+  }
 }

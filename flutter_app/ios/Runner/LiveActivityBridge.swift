@@ -26,6 +26,14 @@ final class LiveActivityBridge {
         self.last = [:]
         self.finish(args)
         result(nil)
+      case "cancel":
+        // 분석 취소 → 잠금화면에서 바로 내림
+        self.last = [:]
+        if #available(iOS 16.1, *), let act = self.activity as? Activity<AnalysisActivityAttributes> {
+          self.activity = nil
+          Task { await act.end(dismissalPolicy: .immediate) }
+        }
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
