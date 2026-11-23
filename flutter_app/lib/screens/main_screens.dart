@@ -633,33 +633,18 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         ),
     ];
 
-    String join(Iterable<String> xs) =>
-        xs.where((x) => x.trim().isNotEmpty && x != '알 수 없음').join(' · ');
+    // 알 수 없는 값('알 수 없음', '없음' 등)은 빼고, 남는 값이 없으면 그 줄 자체를 숨긴다
+    const unknown = {'알 수 없음', '알수없음', '없음', '모름', '불명', '-', 'unknown', 'none', 'null', 'n/a'};
+    String join(Iterable<String> xs) => xs
+        .map((x) => x.trim())
+        .where((x) => x.isNotEmpty && !unknown.contains(x.toLowerCase()))
+        .join(' · ');
     final info = <(String, String, String)>[
       ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
-      (
-        'pin',
-        '촬영 장소',
-        join([
-          item.place,
-          // 구글 지도 기준 지역명 (못 받으면 좌표)
-          if (s.placeNameFor(item) case final name?)
-            name
-          else if (item.gps != null && item.gps!.length >= 2)
-            '${item.gps![0].toStringAsFixed(3)}, ${item.gps![1].toStringAsFixed(3)}',
-        ]),
-      ),
+      // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
+      ('pin', '촬영 장소', join([item.place, s.placeNameFor(item) ?? ''])),
       ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
       ('palette', '분위기·특징', join([item.weather, item.caption])),
-      (
-        'stack',
-        '메타데이터',
-        join([
-          '사진 #${item.id}',
-          item.exif ? 'EXIF 날짜' : '파일 날짜',
-          if (item.gps != null) 'GPS 있음',
-        ]),
-      ),
     ].where((x) => x.$3.isNotEmpty).toList();
 
     return Column(
@@ -1436,6 +1421,8 @@ class _Screen12SettingsState extends State<Screen12Settings> {
           onSubmit: () => s.setServerUrl(_url.text),
         ),
         SnapNote(s.aiStatusText),
+        // OpenStreetMap 이용 조건: 출처 표시
+        const SnapNote('촬영 장소 주소: © OpenStreetMap 기여자'),
       ],
     );
   }

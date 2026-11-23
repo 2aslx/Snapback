@@ -372,7 +372,7 @@ class SnapbackState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  // ── 촬영 장소 지역명 (구글 지도 지오코딩, 기기에 캐시) ─────────────
+  // ── 촬영 장소 주소 (구글 지도 또는 OpenStreetMap, 기기에 캐시) ─────────────
   /// 좌표(소수 4자리 ≈ 11m) → 지역명
   final Map<String, String> placeNames = {};
   final Set<String> _placeAsked = {};

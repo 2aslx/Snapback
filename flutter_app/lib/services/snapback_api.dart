@@ -179,7 +179,7 @@ class SnapbackApi {
     );
   }
 
-  /// GPS 좌표 → 구글 지도 기준 지역명. 서버에 지도 키가 없으면 ApiException('no_maps_key').
+  /// GPS 좌표 → 시·구·동 주소 (서버가 구글 지도 또는 OpenStreetMap 으로 변환).
   Future<String?> placeName(double lat, double lng) async {
     final data = await _post('/api/place', {'lat': lat, 'lng': lng});
     final n = data['name'];
