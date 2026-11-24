@@ -1140,41 +1140,194 @@ class RecordStrip extends StatelessWidget {
 // ── ㉒ 기록 탭 ─────────────────────────────────────────────
 /// 하단 '기록' 탭: 기록으로 남긴 사진 모음. 위에 '즐겨찾기', 아래 '모든 기록'.
 /// 카드의 별을 누르면 즐겨찾기가 켜지고 꺼지며, 켜진 기록은 위 '즐겨찾기'로 올라간다.
+/// 기록 탭 정렬·보기 기준 (id, 이름)
+const kRecordViews = [
+  ('genre', '장르별 정렬'),
+  ('default', '기본 정렬'),
+  ('fav', '즐겨찾기'),
+  ('moment', '추억 기록'),
+  ('place', '장소 기록'),
+  ('document', '문서 기록'),
+];
+
 class Screen22Records extends StatelessWidget {
   const Screen22Records({super.key, required this.state});
   final SnapbackState state;
 
+  /// 오른쪽 위 정렬 기준 고르기 (팝업)
+  Future<void> _pickView(BuildContext context) async {
+    final s = state;
+    final c = context.sc;
+    final picked = await showDialog<String>(
+      context: context,
+      barrierColor: const Color(0x66000000),
+      builder: (ctx) => Dialog(
+        backgroundColor: c.bg,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Text(
+                  '정렬 기준',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: c.ink,
+                  ),
+                ),
+              ),
+              for (final (id, label) in kRecordViews)
+                Pressable(
+                  onTap: () => Navigator.of(ctx).pop(id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: s.recordsView == id
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                              color: s.recordsView == id ? c.pk : c.ink,
+                            ),
+                          ),
+                        ),
+                        if (s.recordsView == id)
+                          SnapIcon('check', size: 18, color: c.pk),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) s.setRecordsView(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final c = context.sc;
     final byNew = [...s.records]
       ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
-    final favs = byNew.where((r) => r.favorite).toList();
-    final rest = byNew.where((r) => !r.favorite).toList();
     Widget grid(List<PhotoRecord> list) => AlbumCardGrid(
       children: [for (final r in list) _RecordCard(state: s, record: r)],
     );
+    final view = s.recordsView;
+    final viewLabel = kRecordViews
+        .firstWhere((v) => v.$1 == view, orElse: () => kRecordViews[1])
+        .$2;
+
+    final sections = <Widget>[];
+    switch (view) {
+      case 'genre':
+        // 장르별: 추억 · 장소 · 문서 순으로 묶어서 (각 묶음 안에서는 즐겨찾기 먼저)
+        for (final t in kRecordTypes) {
+          final list = byNew.where((r) => r.type == t.id).toList()
+            ..sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+          if (list.isEmpty) continue;
+          sections
+            ..add(SnapH3(t.label, icon: t.icon, trailing: '(${list.length})'))
+            ..add(grid(list));
+        }
+      case 'fav':
+        final list = byNew.where((r) => r.favorite).toList();
+        if (list.isNotEmpty) {
+          sections
+            ..add(
+              SnapH3('즐겨찾기', icon: 'star-fill', trailing: '(${list.length})'),
+            )
+            ..add(grid(list));
+        }
+      case 'moment' || 'place' || 'document':
+        final t = recordTypeOf(view);
+        final list = byNew.where((r) => r.type == view).toList();
+        if (list.isNotEmpty) {
+          sections
+            ..add(SnapH3(t.label, icon: t.icon, trailing: '(${list.length})'))
+            ..add(grid(list));
+        }
+      default:
+        // 기본: 즐겨찾기를 위에 따로, 나머지는 아래
+        final favs = byNew.where((r) => r.favorite).toList();
+        final rest = byNew.where((r) => !r.favorite).toList();
+        if (favs.isNotEmpty) {
+          sections
+            ..add(
+              SnapH3('즐겨찾기', icon: 'star-fill', trailing: '(${favs.length})'),
+            )
+            ..add(grid(favs));
+        }
+        if (rest.isNotEmpty) {
+          sections
+            ..add(
+              SnapH3(
+                favs.isEmpty ? '모든 기록' : '다른 기록',
+                trailing: '(${rest.length})',
+              ),
+            )
+            ..add(grid(rest));
+        }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const LargeTitle(title: '기록'),
-        if (s.records.isEmpty) ...[
+        LargeTitle(
+          title: '기록',
+          actions: [
+            if (s.records.isNotEmpty)
+              Pressable(
+                onTap: () => _pickView(context),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 7, 9, 7),
+                  decoration: BoxDecoration(
+                    color: c.card,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        viewLabel,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: c.pk,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      SnapIcon('down', size: 15, color: c.pk),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (s.records.isEmpty)
           const SnapEmpty(
             icon: 'bookmark',
             text: '아직 남긴 기록이 없어요.\n사진 상세에서 \'기록으로 남기기\'를 눌러 보세요.',
-          ),
-        ] else ...[
-          if (favs.isNotEmpty) ...[
-            SnapH3('즐겨찾기', icon: 'star-fill', trailing: '(${favs.length})'),
-            grid(favs),
-          ],
-          if (rest.isNotEmpty) ...[
-            SnapH3(
-              favs.isEmpty ? '모든 기록' : '다른 기록',
-              trailing: '(${rest.length})',
-            ),
-            grid(rest),
-          ],
+          )
+        else if (sections.isEmpty)
+          SnapEmpty(icon: 'bookmark', text: "'$viewLabel'에 해당하는 기록이 없어요")
+        else ...[
+          ...sections,
           const SnapNote('별을 누르면 즐겨찾기에 올라가요'),
         ],
       ],

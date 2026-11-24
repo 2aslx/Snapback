@@ -234,10 +234,47 @@ class _Screen5HomeState extends State<Screen5Home>
                 if (_editing)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: SnapSub(
-                      _sel.isEmpty
-                          ? '지울 사진을 눌러 고르세요 · 사진 앱의 원본은 지워지지 않아요'
-                          : '${_sel.length}장 선택됨',
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: SnapSub(
+                            _sel.isEmpty
+                                ? '지울 사진을 눌러 고르세요 · 사진 앱의 원본은 지워지지 않아요'
+                                : '${_sel.length}장 선택됨',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // 전체 선택 / 전체 해제 (모든 사진 기준, 선택이 보이게 모두 보기로 펼침)
+                        Pressable(
+                          onTap: () => setState(() {
+                            final all = photos.map((d) => d.id).toSet();
+                            if (_sel.length == all.length) {
+                              _sel.clear();
+                            } else {
+                              _sel
+                                ..clear()
+                                ..addAll(all);
+                              _showAll = true;
+                            }
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: context.sc.soft,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Text(
+                              _sel.length == photos.length ? '전체 해제' : '전체 선택',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: context.sc.pk,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 if (!_showAll)

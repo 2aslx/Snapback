@@ -564,6 +564,14 @@ class SnapbackState extends ChangeNotifier {
   /// 나의 기록에서 '뒤로' 갈 화면
   int recordReturn = 19;
 
+  /// 기록 탭 보기 방식: default(기본: 즐겨찾기 위) · genre(장르별) · fav(즐겨찾기만) · moment/place/document(그 종류만)
+  String recordsView = 'default';
+
+  void setRecordsView(String v) {
+    recordsView = v;
+    notifyListeners();
+  }
+
   PhotoRecord? recordForPhoto(int photoId) =>
       records.where((r) => r.photoId == photoId).firstOrNull;
   PhotoRecord? recordById(int? id) =>
