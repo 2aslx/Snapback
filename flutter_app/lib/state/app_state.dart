@@ -128,8 +128,54 @@ class SnapbackState extends ChangeNotifier {
 
   // Onboarding selections
   int scopeSelection = 0; // 0: 전체, 1: 앨범, 2: 직접, 3: 기간
-  int orderSelection = 0; // 0: 최근, 1: 오래된, 2: 지정 기간
-  String priorityYear = '2026';
+  int orderSelection = 1; // 0: 최근, 1: 오래된(기본), 2: 지정 기간 우선
+  String priorityYear = '${DateTime.now().year}';
+
+  /// '지정 기간 우선'에서 고를 수 있는 연도 (고른 범위의 사진에 실제로 있는 연도, 최신순)
+  List<String> availableYears = [];
+  bool yearsLoading = false;
+
+  /// 분석 순서 비교: 최근 / 오래된 / 지정 연도 먼저 → 나머지는 오래된 순
+  int compareForOrder(DateTime a, DateTime b) {
+    if (orderSelection == 0) return b.compareTo(a);
+    if (orderSelection == 2) {
+      final py = int.tryParse(priorityYear);
+      final am = a.year == py ? 0 : 1, bm = b.year == py ? 0 : 1;
+      if (am != bm) return am - bm;
+    }
+    return a.compareTo(b);
+  }
+
+  /// 고른 접근 범위(전체 · 앨범 · 직접 고르기 · 기간)의 사진에 들어 있는 연도를 모은다.
+  Future<void> loadAvailableYears() async {
+    if (yearsLoading) return;
+    yearsLoading = true;
+    notifyListeners();
+    final years = <int>{};
+    try {
+      if (scopeSelection == 2 || !useLibrary) {
+        years.addAll(pickQueue.map((e) => e.modified.year));
+      } else if (await ensureLibrary()) {
+        final paths = scopeSelection == 1
+            ? libraryAlbums
+                  .where((a) => selectedAlbumIds.contains(a.path.id))
+                  .map((a) => a.path)
+            : [?_allPath];
+        for (final p in paths) {
+          final n = await p.assetCountAsync;
+          final list = await p.getAssetListRange(start: 0, end: math.min(n, 3000));
+          years.addAll(list.map((a) => a.createDateTime.year));
+        }
+        if (scopeSelection == 3) years.removeWhere((y) => y < 2022);
+      }
+    } catch (_) {}
+    availableYears = (years.toList()..sort((a, b) => b - a)).map((y) => '$y').toList();
+    if (availableYears.isNotEmpty && !availableYears.contains(priorityYear)) {
+      priorityYear = availableYears.first;
+    }
+    yearsLoading = false;
+    notifyListeners();
+  }
 
   // Photos & DB
   List<PhotoItem> db = buildSeedPhotos();
@@ -660,6 +706,8 @@ class SnapbackState extends ChangeNotifier {
   void touch() => notifyListeners();
 
   void go(int idx) {
+    // 분석 순서 화면에 들어올 때마다 연도 목록을 지금 고른 범위로 다시 계산
+    if (idx == 3 && screen != 3) availableYears = [];
     seamlessSwitch = false;
     screen = idx;
     notifyListeners();
@@ -982,20 +1030,12 @@ class SnapbackState extends ChangeNotifier {
           .where((a) => !a.createDateTime.isBefore(DateTime(2022)))
           .toList();
     }
-    if (orderSelection == 1) {
-      list.sort((a, b) => a.createDateTime.compareTo(b.createDateTime));
-    } else if (orderSelection == 2) {
-      final py = int.tryParse(priorityYear) ?? 2026;
-      list.sort((a, b) {
-        final am = a.createDateTime.year == py ? 1 : 0;
-        final bm = b.createDateTime.year == py ? 1 : 0;
-        if (am != bm) return bm - am;
-        return b.createDateTime.compareTo(a.createDateTime);
-      });
-    } else {
-      list.sort((a, b) => b.createDateTime.compareTo(a.createDateTime));
-    }
-    _enqueueAssets(list.take(kMaxLibraryQueue));
+    list.sort((a, b) => compareForOrder(a.createDateTime, b.createDateTime));
+    // 이미 분석한 사진은 빼고 상한만큼 담는다 (분석한 사진이 자리를 차지하지 않게)
+    final analyzed = {for (final d in db) d.fileKey};
+    _enqueueAssets(
+      list.where((a) => !analyzed.contains('asset:${a.id}')).take(kMaxLibraryQueue),
+    );
     notifyListeners();
     return pickQueue.length;
   }
@@ -1056,19 +1096,7 @@ class SnapbackState extends ChangeNotifier {
         .where((p) => !analyzed.contains(p.key) && !_inFlight.contains(p.key))
         .toList();
 
-    if (orderSelection == 2) {
-      final py = int.tryParse(priorityYear) ?? 2026;
-      pending.sort((a, b) {
-        final am = a.modified.year == py ? 1 : 0;
-        final bm = b.modified.year == py ? 1 : 0;
-        if (am != bm) return bm - am;
-        return b.modified.compareTo(a.modified);
-      });
-    } else if (orderSelection == 1) {
-      pending.sort((a, b) => a.modified.compareTo(b.modified));
-    } else {
-      pending.sort((a, b) => b.modified.compareTo(a.modified));
-    }
+    pending.sort((a, b) => compareForOrder(a.modified, b.modified));
 
     analysisTotal = pickQueue.length;
     analysisDone = analysisTotal - pending.length;

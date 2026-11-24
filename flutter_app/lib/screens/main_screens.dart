@@ -1422,17 +1422,6 @@ class _Screen12SettingsState extends State<Screen12Settings> {
           ],
         ),
         if (s.hiddenWarning.isNotEmpty) SnapWarn(s.hiddenWarning),
-        SnapGroup(
-          children: [
-            SnapRow(
-              leading: const IconBadge('flask'),
-              title: '사용성 테스트 모드',
-              subtitle: 'Top-5 포함률·시간·질문 수 측정',
-              trailing: const Chevron(),
-              onTap: () => s.go(14),
-            ),
-          ],
-        ),
         const SnapH3('분석', small: true),
         SnapGroup(
           top: 0,

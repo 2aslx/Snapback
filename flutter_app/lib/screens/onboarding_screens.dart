@@ -197,6 +197,11 @@ class Screen3Order extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final c = context.sc;
+    // 이미 '지정 기간 우선'이 골라져 있으면 연도 목록을 불러 둔다
+    if (s.orderSelection == 2 && s.availableYears.isEmpty && !s.yearsLoading) {
+      Future.microtask(s.loadAvailableYears);
+    }
     SnapRow opt(int i, String icon, String title, String sub) => SnapRow(
       leading: IconBadge(icon),
       title: title,
@@ -205,8 +210,10 @@ class Screen3Order extends StatelessWidget {
       onTap: () {
         s.orderSelection = i;
         s.touch();
+        if (i == 2) s.loadAvailableYears();
       },
     );
+    final showYears = s.orderSelection == 2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -216,27 +223,55 @@ class Screen3Order extends StatelessWidget {
         SnapGroup(
           children: [
             opt(0, 'sprout', '최근 사진부터', '요즘 찍은 사진을 먼저'),
-            opt(1, 'history', '오래된 사진부터', '2022년부터 차근차근'),
-            opt(2, 'target', '지정 기간 우선', '고른 기간을 먼저 분석'),
+            opt(1, 'history', '오래된 사진부터', '가장 오래된 사진부터 차근차근'),
+            opt(2, 'target', '지정 기간 우선', '고른 연도를 먼저, 나머지는 오래된 순으로'),
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final y in const ['2026', '2025', '2024', '2023', '2022'])
-                SnapChip(
-                  label: y,
-                  selected: s.priorityYear == y,
-                  onTap: () {
-                    s.priorityYear = y;
-                    s.touch();
-                  },
+        // '지정 기간 우선'을 골랐을 때만 연도가 스르륵 펼쳐진다
+        AnimatedSize(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: !showYears
+              ? const SizedBox(width: double.infinity)
+              : AnimatedOpacity(
+                  opacity: 1,
+                  duration: const Duration(milliseconds: 260),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '먼저 분석할 연도',
+                          style: TextStyle(fontSize: 13, color: c.mute),
+                        ),
+                        const SizedBox(height: 8),
+                        if (s.yearsLoading && s.availableYears.isEmpty)
+                          const SnapNote('사진의 연도를 확인하는 중…', top: 0)
+                        else if (s.availableYears.isEmpty)
+                          const SnapNote('고른 사진에서 연도를 찾지 못했어요', top: 0)
+                        else
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final y in s.availableYears)
+                                SnapChip(
+                                  label: y,
+                                  accent: true,
+                                  selected: s.priorityYear == y,
+                                  onTap: () {
+                                    s.priorityYear = y;
+                                    s.touch();
+                                  },
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-            ],
-          ),
         ),
         SnapButton(
           label: '분석 시작',
