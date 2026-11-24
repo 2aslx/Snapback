@@ -185,7 +185,8 @@ class SnapbackState extends ChangeNotifier {
   }
 
   // Photos & DB
-  List<PhotoItem> db = buildSeedPhotos();
+  /// 분석한 사진 DB (데모 사진 없이 사용자의 사진만). id 1~11 은 예전 데모 사진 자리라 비워 둔다.
+  List<PhotoItem> db = [];
   int _nextId = 12;
 
   // Analysis queue & progress
@@ -307,7 +308,7 @@ class SnapbackState extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(PhotoItem.fromJson)
             .toList();
-        db = [...buildSeedPhotos(), ...list];
+        db = list.where((d) => d.id > 11).toList();
         final maxId = db.fold<int>(11, (prev, e) => e.id > prev ? e.id : prev);
         _nextId = maxId + 1;
       } catch (_) {}

@@ -101,9 +101,10 @@ final List<LinearGradient> kTileGradients = [
   _g(0xFFFFDCC4, 0xFFF98D55),
 ];
 
-/// 글꼴: 영문·숫자는 Inter(assets/fonts), 한글은 iOS 기본(Apple SD Gothic Neo) → Pretendard → Noto Sans KR.
+/// 글꼴: 영문·숫자는 Inter(assets/fonts), 한글은 iOS 기본(Apple SD Gothic Neo) → 앱에 넣은 SnapbackKR(Pretendard 기반)
+/// → Noto Sans KR. 웹은 기기 글꼴이 없어 SnapbackKR 이 쓰이므로 한글이 깨지지 않는다.
 const kFontFamily = 'Inter';
-const kFontFallback = ['Apple SD Gothic Neo', 'Pretendard', 'Noto Sans KR'];
+const kFontFallback = ['Apple SD Gothic Neo', 'SnapbackKR', 'Noto Sans KR'];
 
 ThemeData buildSnapbackTheme(Brightness brightness) {
   final c =

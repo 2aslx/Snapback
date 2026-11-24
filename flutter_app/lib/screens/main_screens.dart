@@ -1945,7 +1945,7 @@ class _Screen13SearchState extends State<Screen13Search>
             )
           else if (s.activeQuestion != null) ...[
             const SizedBox(height: 8),
-            SnapBubble(child: Text(s.activeQuestion!.text)),
+            SnapBubble(child: Text(keepWords(s.activeQuestion!.text))),
             Wrap(
               spacing: 6,
               runSpacing: 6,

@@ -744,14 +744,19 @@ class _LibraryPickerState extends State<_LibraryPicker> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(11),
-            child: Image(
-              image: AssetEntityImageProvider(
-                a,
-                isOriginal: false,
-                thumbnailSize: ThumbnailSize.square((130 * dpr).round()),
+            child: ColoredBox(
+              color: c.card,
+              child: Image(
+                image: AssetEntityImageProvider(
+                  a,
+                  isOriginal: false,
+                  thumbnailSize: ThumbnailSize.square((130 * dpr).round()),
+                ),
+                fit: BoxFit.contain, // 사진 전체가 보이게 (자르지 않음)
+                width: double.infinity,
+                height: double.infinity,
+                errorBuilder: (_, _, _) => ColoredBox(color: c.fill),
               ),
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => ColoredBox(color: c.fill),
             ),
           ),
           if (on)

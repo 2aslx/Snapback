@@ -84,6 +84,16 @@ flutter:
         - asset: assets/fonts/Inter-ExtraBold.ttf
           weight: 800
 
+    # 한글: SnapbackKR = Pretendard(SIL OFL 1.1)를 자주 쓰는 한글 2,350자로 줄인 버전 (assets/fonts/SnapbackKR-OFL.txt)
+    # 웹은 기기 글꼴을 못 써서 한글을 그때그때 내려받다가 글자가 깨질 수 있어 앱에 직접 넣는다
+    - family: SnapbackKR
+      fonts:
+        - asset: assets/fonts/SnapbackKR-Regular.otf
+        - asset: assets/fonts/SnapbackKR-SemiBold.otf
+          weight: 600
+        - asset: assets/fonts/SnapbackKR-Bold.otf
+          weight: 700
+
   # 시작 화면용 앱 아이콘 (둥근 모서리)
   assets:
     - assets/brand/app_icon.png

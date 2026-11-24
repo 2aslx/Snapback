@@ -119,6 +119,17 @@ class Bleed extends StatelessWidget {
   );
 }
 
+/// 한글 줄바꿈을 단어 단위로: Flutter 는 한글을 글자마다 끊어 '친구 / 와'처럼 단어가 쪼개진다.
+/// 단어 안의 글자 사이에 보이지 않는 연결 문자(U+2060)를 넣어 띄어쓰기에서만 줄이 바뀌게 한다.
+/// (화면 표시용 글자에만 쓰고, 입력칸·저장 값에는 쓰지 않는다)
+String keepWords(String text) {
+  if (!RegExp(r'[가-힣]').hasMatch(text)) return text;
+  return text
+      .split(' ')
+      .map((w) => w.length < 2 ? w : w.split('').join('\u2060'))
+      .join(' ');
+}
+
 /// 화면 전환 방향: 상단 뒤로가기 버튼으로 바뀌는 화면이면 true (셸이 '오른쪽으로 밀리는' 효과를 씀)
 class SnapNav {
   static bool backPending = false;
@@ -385,7 +396,7 @@ class SnapSub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-    text,
+    keepWords(text),
     textAlign: center ? TextAlign.center : TextAlign.start,
     style: TextStyle(fontSize: 15, height: 1.45, color: context.sc.mute),
   );
@@ -414,7 +425,7 @@ class SnapNote extends StatelessWidget {
               ),
               const TextSpan(text: ' '),
             ],
-            TextSpan(text: text),
+            TextSpan(text: keepWords(text)),
           ],
         ),
         textAlign: TextAlign.center,
@@ -511,13 +522,16 @@ class IconBadge extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: gradIndex == null && image == null ? c.pri : null,
+        color: image != null
+            ? c.card
+            : (gradIndex == null ? c.pri : null),
         gradient: image == null && gradIndex != null
             ? kTileGradients[gradIndex! % 6]
             : null,
         borderRadius: BorderRadius.circular(radius),
+        // 사진은 자르지 않고 전체가 보이게 (남는 곳은 옅은 바탕)
         image: image != null
-            ? DecorationImage(image: image!, fit: BoxFit.cover)
+            ? DecorationImage(image: image!, fit: BoxFit.contain)
             : null,
       ),
       alignment: Alignment.center,
@@ -878,24 +892,27 @@ class PhotoTile extends StatelessWidget {
             logicalSize: math.max(w, h),
             dpr: dpr,
           );
-          return _tile(provider, text);
+          return _tile(provider, text, context.sc.card);
         },
       ),
     );
   }
 
-  Widget _tile(ImageProvider? provider, String text) {
+  Widget _tile(ImageProvider? provider, String text, Color letterbox) {
     final bytes = provider;
     return Container(
       width: width,
       height: height,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
-        gradient: kTileGradients[item.id % 6],
+        // 실제 사진이면 옅은 바탕 위에 사진 전체(잘라내지 않음), 사진이 없으면 그라데이션
+        color: bytes != null ? letterbox : null,
+        gradient: bytes == null ? kTileGradients[item.id % 6] : null,
         image: bytes != null
             ? DecorationImage(
                 image: bytes,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 onError: (_, _) {},
               )
             : null,

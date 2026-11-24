@@ -118,7 +118,7 @@ class InfoRows extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          rows[i].$3,
+                          keepWords(rows[i].$3),
                           style: TextStyle(fontSize: 16, color: c.ink),
                         ),
                       ],
@@ -178,7 +178,8 @@ class SnapCard extends StatelessWidget {
   );
 }
 
-/// 둥근 사진 카드 (사진 상세 · 나의 기록 맨 위)
+/// 둥근 사진 카드 (사진 상세 · 나의 기록 맨 위).
+/// 사진을 자르지 않는다: 원본 비율을 알면(iOS) 그 비율대로 높이를 정하고, 모르면 정해진 높이 안에 전체를 보여준다.
 class RoundedPhoto extends StatelessWidget {
   const RoundedPhoto({
     super.key,
@@ -191,15 +192,23 @@ class RoundedPhoto extends StatelessWidget {
   final List<Widget> overlay;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: height,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        PhotoTile(item: item, radius: 18, showDate: false, iconSize: 60),
-        ...overlay,
-      ],
-    ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, k) {
+      final w = item.assetW ?? 0, h = item.assetH ?? 0;
+      final fitted = w > 0 && h > 0 && k.hasBoundedWidth
+          ? (k.maxWidth * h / w).clamp(180.0, 520.0)
+          : height;
+      return SizedBox(
+        height: fitted,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PhotoTile(item: item, radius: 18, showDate: false, iconSize: 60),
+            ...overlay,
+          ],
+        ),
+      );
+    },
   );
 }
 
@@ -941,7 +950,7 @@ class _Screen21RecordViewState extends State<Screen21RecordView> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
-              r.memo,
+              keepWords(r.memo),
               style: TextStyle(fontSize: 16, height: 1.5, color: c.ink),
             ),
           ),
@@ -956,7 +965,7 @@ class _Screen21RecordViewState extends State<Screen21RecordView> {
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Text(
-                      '•  $l',
+                      keepWords('•  $l'),
                       style: TextStyle(
                         fontSize: 15,
                         height: 1.45,
@@ -984,7 +993,7 @@ class _Screen21RecordViewState extends State<Screen21RecordView> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    r.summary,
+                    keepWords(r.summary),
                     style: TextStyle(fontSize: 15, height: 1.45, color: c.ink),
                   ),
                 ),
