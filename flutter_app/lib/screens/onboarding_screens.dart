@@ -752,7 +752,7 @@ class _LibraryPickerState extends State<_LibraryPicker> {
                   isOriginal: false,
                   thumbnailSize: ThumbnailSize.square((130 * dpr).round()),
                 ),
-                fit: BoxFit.contain, // 사진 전체가 보이게 (자르지 않음)
+                fit: BoxFit.cover, // 고르기 썸네일은 칸에 꽉 차게
                 width: double.infinity,
                 height: double.infinity,
                 errorBuilder: (_, _, _) => ColoredBox(color: c.fill),

@@ -7,11 +7,19 @@ import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../models/photo_item.dart';
+import 'browser_image.dart';
 import 'preview_store.dart';
 
 /// AI 분석용 이미지 긴 변(px). 서버가 저해상도 모드(detail: low)로 보내므로
 /// 모델이 실제로 보는 최대 크기인 512에 맞춘다 (더 크게 보내도 정확도는 같고 느리기만 함).
 const kAnalyzeSize = 512;
+
+/// 사진 형식을 읽을 수 없음 (예: 브라우저가 지원하지 않는 HEIC, 손상된 파일)
+class UnsupportedImageException implements Exception {
+  const UnsupportedImageException();
+  @override
+  String toString() => '사진 형식을 읽을 수 없어요 (HEIC 등은 JPEG 로 바꿔 올려 주세요)';
+}
 
 class ProcessedImage {
   ProcessedImage({
@@ -61,9 +69,8 @@ class _ResizeRequest {
 
 String _resizeAndEncode(_ResizeRequest req) {
   final decoded = img.decodeImage(req.bytes);
-  if (decoded == null) {
-    return 'data:image/jpeg;base64,${base64Encode(req.bytes)}';
-  }
+  // 읽을 수 없는 형식을 JPEG 인 척 보내면 AI 가 거절하므로, 분명한 오류로 알린다
+  if (decoded == null) throw const UnsupportedImageException();
   final maxSide = math.max(decoded.width, decoded.height);
   final resized = maxSide > req.maxDim
       ? (decoded.width >= decoded.height
@@ -136,18 +143,29 @@ class ImageProcessor {
     final dateStr =
         '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
-    final analyzeUrl = await compute(
-      _resizeAndEncode,
-      _ResizeRequest(bytes, kAnalyzeSize, 80),
-    );
-    final thumbUrl = await compute(
-      _resizeAndEncode,
-      _ResizeRequest(bytes, 160, 60),
-    );
-    // 웹은 원본을 다시 읽을 수 없으니 큰 화면용 미리보기를 따로 만들어 둔다
-    final preview = kIsWeb
-        ? await compute(_resizeToJpeg, _ResizeRequest(bytes, 1080, 82))
+    String jpegUrl(Uint8List b) => 'data:image/jpeg;base64,${base64Encode(b)}';
+    String analyzeUrl, thumbUrl;
+    Uint8List? preview;
+    // 웹: 브라우저 내장 해독(빠름 · 회전 정보 반영 · HEIC 는 변환 후)으로 분석용/썸네일/미리보기를 한 번에
+    final viaBrowser = kIsWeb
+        ? await browserResizeJpegs(
+            bytes,
+            const [(kAnalyzeSize, 0.8), (160, 0.6), (1080, 0.82)],
+            mime: file.mimeType,
+          )
         : null;
+    if (viaBrowser != null) {
+      analyzeUrl = jpegUrl(viaBrowser[0]);
+      thumbUrl = jpegUrl(viaBrowser[1]);
+      preview = viaBrowser[2];
+    } else {
+      analyzeUrl = await compute(_resizeAndEncode, _ResizeRequest(bytes, kAnalyzeSize, 80));
+      thumbUrl = await compute(_resizeAndEncode, _ResizeRequest(bytes, 160, 60));
+      // 웹은 원본을 다시 읽을 수 없으니 큰 화면용 미리보기를 따로 만들어 둔다
+      preview = kIsWeb
+          ? await compute(_resizeToJpeg, _ResizeRequest(bytes, 1080, 82))
+          : null;
+    }
 
     return ProcessedImage(
       analyzeDataUrl: analyzeUrl,

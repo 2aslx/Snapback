@@ -458,7 +458,8 @@ class _MiniProgressCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${_n(v.dn)} / ${_n(v.tot)} · ${v.pct}%',
+                        '${_n(v.dn)} / ${_n(v.tot)} · ${v.pct}%'
+                        '${!v.relabel && s.analysisFailed > 0 ? ' · 실패 ${s.analysisFailed}' : ''}',
                         style: white.copyWith(fontSize: 14, color: c.mute),
                       ),
                     ],

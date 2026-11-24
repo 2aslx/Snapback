@@ -55,6 +55,9 @@ const ANALYZE =
   '- 사람의 이름·신원 추측, 문서에 적힌 성명·생년월일·주민등록번호·전화번호·계좌번호·주소·이메일 같은 개인 식별 정보는 어디에도(extracted_text·structured_data·caption 포함) 적지 않는다.\n' +
   '- source_platform 은 로고·앱 이름·고유한 화면 구성으로 분명할 때만 적고, 짐작하지 않는다(애매하면 빈 문자열).\n' +
   '- 보이지 않거나 판단할 수 없는 항목은 "없음"·"알 수 없음" 대신 빈 문자열("") 또는 빈 배열로 둔다.\n' +
+  '- 사람이 보일 때만 people 을 쓴다. 사진의 주인공(가장 크게·앞에 보이는 사람)을 먼저 "주인공: …"으로, 뒤쪽·가장자리 인물은 "배경: …"으로 구분한다. ' +
+  '옷은 "색상 + 종류 + 보이는 글자·무늬·로고"로 구체적으로(예: 빨간 축구 유니폼, 가슴에 영문 로고), 손에 든 물건·하는 행동도 함께 적는다. 신원·이름은 추측하지 않는다. ' +
+  '형식: "주인공: 인원, 색상 옷 종류(보이는 글자·무늬), 들고 있는 물건·행동 / 배경: 인원, 색상 옷 종류" (사진에 실제로 보이는 것만, 예시 문구를 그대로 쓰지 않는다).\n' +
   '- structured_data 의 키는 한국어로, 유형에 맞게 자유롭게 구성한다(예: 추천 제품 목록과 추천 이유, 시험명·등급·발급기관, 항목·수치·단위, 재료·조리 순서).\n' +
   '[출력 JSON]\n' +
   '{"image_type":"photo|screenshot|document|shopping_list|recipe|certificate|receipt|health_report|ticket|menu|chat|note|artwork|기타 영어 소문자 유형",' +
@@ -68,7 +71,7 @@ const ANALYZE =
   '"search_keywords":["의미 기반 검색어·관련 표현 5~10개"],' +
   '"suggested_record_type":"moment|place|taste|shopping|document|info",' +
   '"caption":"이미지 내용 한 문장(항상 작성)",' +
-  '"food":["보이는 음식"],"place":"촬영 장소 유형 또는 빈 문자열","people":"사람이 보일 때만 인원수·옷차림",' +
+  '"food":["보이는 음식"],"place":"촬영 장소 유형 또는 빈 문자열","people":"사람이 보일 때만: 주인공: … / 배경: …",' +
   '"background":"배경·부수적 객체와 핵심 피사체의 구체적 시각 특징","weather":"날씨","time":"낮/저녁/밤 중 하나 또는 빈 문자열"}';
 
 // 글자가 많은 유형: 1차(512px·low) 뒤 고해상도로 한 번 더 분석할 대상
@@ -159,7 +162,7 @@ function normalizeAnalysis(r) {
     caption: scrubPII(str(r.caption, 160)),
     food: arr(r.food, 8, 30),
     place,
-    people: str(r.people, 120),
+    people: str(r.people, 220),
     background: str(r.background, 200),
     weather: str(r.weather, 30),
     time: ['낮', '저녁', '밤', '아침', '오후', '새벽'].includes(str(r.time, 10)) ? str(r.time, 10) : '',

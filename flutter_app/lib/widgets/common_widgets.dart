@@ -529,9 +529,9 @@ class IconBadge extends StatelessWidget {
             ? kTileGradients[gradIndex! % 6]
             : null,
         borderRadius: BorderRadius.circular(radius),
-        // 사진은 자르지 않고 전체가 보이게 (남는 곳은 옅은 바탕)
+        // 작은 썸네일은 칸에 꽉 차게
         image: image != null
-            ? DecorationImage(image: image!, fit: BoxFit.contain)
+            ? DecorationImage(image: image!, fit: BoxFit.cover)
             : null,
       ),
       alignment: Alignment.center,
@@ -864,8 +864,11 @@ class PhotoTile extends StatelessWidget {
     this.radius = 11,
     this.iconSize = 30,
     this.label,
+    this.fit = BoxFit.cover,
   });
 
+  /// 썸네일·그리드는 cover(칸에 꽉 차게), 크게 보는 사진은 contain(전체가 보이게)
+  final BoxFit fit;
   final PhotoItem item;
   final VoidCallback? onTap;
   final double? width;
@@ -906,15 +909,11 @@ class PhotoTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
-        // 실제 사진이면 옅은 바탕 위에 사진 전체(잘라내지 않음), 사진이 없으면 그라데이션
+        // 사진이 없으면 그라데이션. 전체 보기(contain)일 때 남는 곳은 옅은 바탕
         color: bytes != null ? letterbox : null,
         gradient: bytes == null ? kTileGradients[item.id % 6] : null,
         image: bytes != null
-            ? DecorationImage(
-                image: bytes,
-                fit: BoxFit.contain,
-                onError: (_, _) {},
-              )
+            ? DecorationImage(image: bytes, fit: fit, onError: (_, _) {})
             : null,
       ),
       child: Stack(
@@ -1731,4 +1730,103 @@ class _DateScrollbarState extends State<DateScrollbar> {
       },
     );
   }
+}
+
+/// 크게 보는 사진 (검색된 사진 · 사진 상세 · 나의 기록): 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 보인다.
+/// 비율은 iOS 원본 크기(assetW/H)로, 없으면(웹 등) 이미지를 불러와 실제 크기로 정한다.
+class FullWidthPhoto extends StatefulWidget {
+  const FullWidthPhoto({
+    super.key,
+    required this.item,
+    this.radius = 18,
+    this.fallbackHeight = 280,
+    this.maxHeight = 560,
+    this.overlay = const [],
+  });
+
+  final PhotoItem item;
+  final double radius;
+  final double fallbackHeight;
+  final double maxHeight;
+  final List<Widget> overlay;
+
+  @override
+  State<FullWidthPhoto> createState() => _FullWidthPhotoState();
+}
+
+class _FullWidthPhotoState extends State<FullWidthPhoto> {
+  double? _aspect; // 가로 / 세로
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant FullWidthPhoto old) {
+    super.didUpdateWidget(old);
+    if (old.item.id != widget.item.id) {
+      _aspect = null;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final d = widget.item;
+    if ((d.assetW ?? 0) > 0 && (d.assetH ?? 0) > 0) {
+      _aspect = d.assetW! / d.assetH!;
+      return;
+    }
+    final provider = photoImageProvider(d, logicalSize: 200);
+    if (provider == null) return;
+    _stopListening();
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener((info, _) {
+      final a = info.image.width / info.image.height;
+      if (mounted && a.isFinite && a > 0) setState(() => _aspect = a);
+    }, onError: (_, _) {});
+    stream.addListener(listener);
+    _stream = stream;
+    _listener = listener;
+  }
+
+  void _stopListening() {
+    if (_stream != null && _listener != null) _stream!.removeListener(_listener!);
+  }
+
+  @override
+  void dispose() {
+    _stopListening();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, k) {
+      final w = k.hasBoundedWidth ? k.maxWidth : 360.0;
+      final h = _aspect == null
+          ? widget.fallbackHeight
+          : (w / _aspect!).clamp(140.0, widget.maxHeight);
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: h,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PhotoTile(
+              item: widget.item,
+              radius: widget.radius,
+              showDate: false,
+              iconSize: 60,
+              fit: BoxFit.contain, // 아주 긴 사진도 잘리지 않게
+            ),
+            ...widget.overlay,
+          ],
+        ),
+      );
+    },
+  );
 }

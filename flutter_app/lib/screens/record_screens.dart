@@ -178,8 +178,7 @@ class SnapCard extends StatelessWidget {
   );
 }
 
-/// 둥근 사진 카드 (사진 상세 · 나의 기록 맨 위).
-/// 사진을 자르지 않는다: 원본 비율을 알면(iOS) 그 비율대로 높이를 정하고, 모르면 정해진 높이 안에 전체를 보여준다.
+/// 둥근 사진 카드 (사진 상세 · 나의 기록 맨 위): 가로 폭에 맞추고 높이는 사진 비율대로, 자르지 않음
 class RoundedPhoto extends StatelessWidget {
   const RoundedPhoto({
     super.key,
@@ -188,28 +187,14 @@ class RoundedPhoto extends StatelessWidget {
     this.overlay = const [],
   });
   final PhotoItem item;
+
+  /// 비율을 아직 모를 때의 높이
   final double height;
   final List<Widget> overlay;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, k) {
-      final w = item.assetW ?? 0, h = item.assetH ?? 0;
-      final fitted = w > 0 && h > 0 && k.hasBoundedWidth
-          ? (k.maxWidth * h / w).clamp(180.0, 520.0)
-          : height;
-      return SizedBox(
-        height: fitted,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            PhotoTile(item: item, radius: 18, showDate: false, iconSize: 60),
-            ...overlay,
-          ],
-        ),
-      );
-    },
-  );
+  Widget build(BuildContext context) =>
+      FullWidthPhoto(item: item, fallbackHeight: height, overlay: overlay);
 }
 
 String _typeLine(PhotoRecord r) => switch (r.type) {

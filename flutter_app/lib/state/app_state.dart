@@ -1144,6 +1144,7 @@ class SnapbackState extends ChangeNotifier {
     analysisTotal = pickQueue.length;
     analysisDone = analysisTotal - pending.length;
     _saveQueue();
+    if (pending.isNotEmpty) analysisFailed = 0; // 새로 분석을 시작하면 실패 수를 다시 센다
     etaMs = 0;
     currentFileDate = pending.isNotEmpty ? pending.first.modified : null;
     if (pending.isEmpty && analysisTotal > 0) {
@@ -1206,6 +1207,9 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// 사진 1장: 줄이기 → AI 분석 → DB 저장 (실패하면 기록만 남기고 넘어감)
+  /// 이번 분석에서 실패한 사진 수 (형식을 읽을 수 없음·서버 오류 등). 하단 진행 카드와 홈 알림에 표시
+  int analysisFailed = 0;
+
   /// 지금 분석 요청 중인 사진 (일시정지 후 바로 다시 시작해도 같은 사진을 두 번 보내지 않게)
   final Set<String> _inFlight = {};
 
@@ -1264,6 +1268,7 @@ class SnapbackState extends ChangeNotifier {
         ),
       );
     } on ApiException catch (e) {
+      analysisFailed++;
       aiStatusText = e.userMessage;
       analysisLogs.insert(
         0,
@@ -1273,6 +1278,7 @@ class SnapbackState extends ChangeNotifier {
         ),
       );
     } catch (e) {
+      analysisFailed++;
       analysisLogs.insert(
         0,
         AnalysisLogEntry(isError: true, text: '⚠️ ${entry.label} — 오류 ($e)'),

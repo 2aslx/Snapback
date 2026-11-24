@@ -135,6 +135,17 @@ class _Screen5HomeState extends State<Screen5Home>
             ),
           ),
         ),
+        // 지난 분석에서 실패한 사진이 있으면 알림 (누르면 분석 진행 화면의 기록으로)
+        if (s.analysisFailed > 0 && !s.analysisRunning)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Pressable(
+              onTap: () => s.go(4),
+              child: SnapWarn(
+                '사진 ${s.analysisFailed}장을 분석하지 못했어요. 눌러서 이유를 확인해 보세요.',
+              ),
+            ),
+          ),
         // 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
         GestureDetector(
           onTap: () => _openSearch(s),
@@ -735,7 +746,15 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
               ? placeText
               : (item.gps != null ? '위치 정보 있음' : ''),
         ),
-        ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
+        // 사람: 새 분석은 '주인공: … / 배경: …' 형식 → 주인공과 배경 인물을 따로 표시
+        if (_peopleParts(item.people) case (final main?, final back))
+          ...[
+            ('person', '주인공', join([main])),
+            ('person', '배경 인물', join([?back])),
+            ('image', '주요 객체·장면', join([...item.food, item.background])),
+          ]
+        else
+          ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
         ('palette', '분위기·특징', join([item.weather, item.caption])),
       ],
     ].where((x) => x.$3.isNotEmpty).toList();
@@ -906,6 +925,14 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       ],
     );
   }
+}
+
+/// '주인공: … / 배경: …' 형식이면 (주인공, 배경) 으로 나눈다. 예전 형식이면 (null, null).
+(String?, String?) _peopleParts(String people) {
+  final m = RegExp(r'주인공\s*[:：]\s*([^/]*)').firstMatch(people);
+  if (m == null) return (null, null);
+  final b = RegExp(r'배경\s*[:：]\s*([^/]*)').firstMatch(people);
+  return (m.group(1)!.trim(), b?.group(1)?.trim());
 }
 
 /// 사진 정보 카드 아래쪽 '다시 분석하기' — 이 사진 한 장만 고해상도(글자까지)로 다시 분석
@@ -2000,14 +2027,8 @@ class _Screen13SearchState extends State<Screen13Search>
           // 가장 가능성이 높은 사진 — 크게
           GestureDetector(
             onTap: () => s.openMemory(top.id),
-            child: PhotoTile(
-              item: topPhoto,
-              height: 260,
-              width: double.infinity,
-              radius: 13,
-              showDate: false,
-              iconSize: 60,
-            ),
+            // 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 크게
+            child: FullWidthPhoto(item: topPhoto, radius: 13, fallbackHeight: 260),
           ),
           const SizedBox(height: 10),
           Row(
