@@ -40,6 +40,16 @@ Future<web.Blob?> _heicToJpeg(web.Blob blob) async {
 }
 
 Future<web.ImageBitmap?> _decode(web.Blob blob) async {
+  // 지원하는 브라우저(크롬·파이어폭스 등)는 가로 1280px 로 줄이면서 푼다 → 4800만 화소 사진도 메모리 수십 MB 대신 몇 MB.
+  // 지원하지 않으면 옵션을 무시하거나 실패하므로, 그때는 원본 크기로 다시 푼다.
+  try {
+    return await web.window
+        .createImageBitmap(
+          blob,
+          web.ImageBitmapOptions(resizeWidth: 1280, resizeQuality: 'high'),
+        )
+        .toDart;
+  } catch (_) {}
   try {
     return await web.window.createImageBitmap(blob).toDart;
   } catch (_) {

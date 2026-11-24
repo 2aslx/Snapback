@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
@@ -301,7 +302,13 @@ class SnapbackState extends ChangeNotifier {
             .toList();
       } catch (_) {}
     }
-    final raw = prefs.getString(_dbKey);
+    // 웹은 IndexedDB(용량 넉넉) 에 저장, 예전 localStorage 데이터는 그대로 읽어 옮긴다
+    String? raw;
+    if (kIsWeb && PreviewStore.enabled) {
+      final bytes = await PreviewStore.get(_webDbKey);
+      if (bytes != null) raw = utf8.decode(bytes);
+    }
+    raw ??= prefs.getString(_dbKey);
     if (raw != null && raw.isNotEmpty) {
       try {
         final list = (jsonDecode(raw) as List)
@@ -425,14 +432,28 @@ class SnapbackState extends ChangeNotifier {
         .catchError((_) => true);
   }
 
+  static const _webDbKey = 'db:main';
+  Timer? _saveTimer;
+
+  /// 분석 중엔 사진마다 전체 DB 를 쓰지 않고 2초에 한 번으로 묶어 저장 (웹·휴대폰 부담 줄이기)
+  void _saveDbSoon() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(seconds: 2), _saveDb);
+  }
+
   Future<void> _saveDb() async {
+    _saveTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
-      final uploaded = db
-          .where((d) => d.id > 11)
-          .map((d) => d.toJson())
-          .toList();
-      await prefs.setString(_dbKey, jsonEncode(uploaded));
+      final json = jsonEncode(db.where((d) => d.id > 11).map((d) => d.toJson()).toList());
+      // 웹: localStorage 는 약 5MB 라 사진이 많으면 저장이 조용히 실패한다 → IndexedDB 에 저장
+      if (kIsWeb &&
+          PreviewStore.enabled &&
+          await PreviewStore.put(_webDbKey, Uint8List.fromList(utf8.encode(json)))) {
+        await prefs.remove(_dbKey); // localStorage 비워 앨범·기록 저장 공간 확보
+        return;
+      }
+      await prefs.setString(_dbKey, json);
     } catch (_) {}
   }
 
@@ -1212,7 +1233,16 @@ class SnapbackState extends ChangeNotifier {
       await loadPickerAssets();
       return 0;
     }
-    final files = await _picker.pickMultiImage();
+    pickNotice = ''; // 이전 안내는 지움
+    List<XFile> files;
+    try {
+      files = await _picker.pickMultiImage();
+    } catch (e) {
+      // 앱 안 브라우저(카카오톡·인스타그램 등)나 브라우저 설정 때문에 파일 선택이 막힌 경우
+      pickNotice = '사진을 불러오지 못했어요. Safari·Chrome 같은 기본 브라우저에서 다시 시도해 주세요.';
+      notifyListeners();
+      return 0;
+    }
     if (files.isEmpty) return 0;
     // 분석이 끝난 묶음이면 먼저 비워서, 이번에 올린 사진만 세게 한다
     prepareNewBatch();
@@ -1318,7 +1348,7 @@ class SnapbackState extends ChangeNotifier {
     }
 
     await Future.wait([
-      for (var w = 0; w < math.min(kAnalyzeConcurrency, pending.length); w++)
+      for (var w = 0; w < math.min(_concurrency, pending.length); w++)
         worker(),
     ]);
 
@@ -1329,6 +1359,7 @@ class SnapbackState extends ChangeNotifier {
     }
 
     if (myRun == _runId) {
+      await _saveDb(); // 묶어 두던 저장을 바로 마무리
       prefetchAddresses(); // 새로 분석한 사진의 주소도 받아 둔다
       analysisRunning = false;
       analysisFinished = true;
@@ -1339,6 +1370,9 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// 사진 1장: 줄이기 → AI 분석 → DB 저장 (실패하면 기록만 남기고 넘어감)
+  /// 동시에 분석할 사진 수: 웹은 큰 사진을 브라우저 메모리에서 풀어야 해서 2장, 앱은 5장
+  static int get _concurrency => kIsWeb ? 2 : kAnalyzeConcurrency;
+
   /// 이번 분석에서 실패한 사진 수 (형식을 읽을 수 없음·서버 오류 등). 하단 진행 카드와 홈 알림에 표시
   int analysisFailed = 0;
   final Set<String> _failedKeys = {};
@@ -1366,8 +1400,10 @@ class SnapbackState extends ChangeNotifier {
           : await ImageProcessor.process(entry.file!, entry.modified);
       String? previewKey;
       if (processed.previewBytes != null && PreviewStore.enabled) {
-        previewKey = 'pv:${entry.key}';
-        await PreviewStore.put(previewKey, processed.previewBytes!);
+        // 저장에 실패하면(사생활 보호 모드 등) 미리보기 없이 작은 썸네일로 보여 준다
+        if (await PreviewStore.put('pv:${entry.key}', processed.previewBytes!)) {
+          previewKey = 'pv:${entry.key}';
+        }
       }
       var ai = await api.analyzeImage(processed.analyzeDataUrl);
       // 스크린샷·문서처럼 글자가 많은 이미지면 1280px + 고해상도로 한 번 더 정밀 분석
@@ -1402,7 +1438,7 @@ class SnapbackState extends ChangeNotifier {
       ).withAnalysis(ai);
       if (db.any((d) => d.fileKey == entry.key)) return; // 이미 저장됨 (중복 방지)
       db.add(item);
-      await _saveDb();
+      _saveDbSoon();
       analysisLogs.insert(
         0,
         AnalysisLogEntry(
@@ -1511,7 +1547,7 @@ class SnapbackState extends ChangeNotifier {
     }
 
     await Future.wait([
-      for (var w = 0; w < math.min(kAnalyzeConcurrency, targets.length); w++) worker(),
+      for (var w = 0; w < math.min(_concurrency, targets.length); w++) worker(),
     ]);
     if (run != _relabelRun) return;
     relabelRunning = false;
@@ -1790,6 +1826,14 @@ class SnapbackState extends ChangeNotifier {
     }
   }
 
+  /// 미리보기 사진 전체 선택(=해제 목록 비우기) / 전체 해제
+  void setAllDraftPhotos(bool selected) {
+    albumDraftSelected.clear();
+    if (!selected) albumDraftSelected.addAll(albumDraft?.photoIds ?? const []);
+    notifyListeners();
+  }
+
+  /// 미리보기에서 사진 선택/해제 (albumDraftSelected = 앨범에서 뺄 사진)
   void toggleDraftPhoto(int id) {
     if (!albumDraftSelected.remove(id)) albumDraftSelected.add(id);
     notifyListeners();
@@ -1812,10 +1856,16 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// 최종 확인 → 앨범 저장 후 앨범 상세로.
+  /// 앨범 만들기: 미리보기에서 선택 해제한 사진([albumDraftSelected])은 빼고 선택된 사진만 담는다
   void confirmAlbumDraft(String title) {
     final d = albumDraft;
-    if (d == null || d.photoIds.isEmpty) return;
-    createAlbumFromSuggestion(d, title);
+    if (d == null) return;
+    final kept = d.photoIds.where((id) => !albumDraftSelected.contains(id)).toList();
+    if (kept.isEmpty) return;
+    createAlbumFromSuggestion(
+      AlbumSuggestion(title: d.title, emoji: d.emoji, photoIds: kept, category: d.category),
+      title,
+    );
     albumDraft = null;
     albumDraftSelected.clear();
     openAlbum(lastCreatedAlbumId!);

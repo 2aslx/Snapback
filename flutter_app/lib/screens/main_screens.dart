@@ -147,7 +147,7 @@ class _Screen5HomeState extends State<Screen5Home>
             ),
           ),
         // 사진을 고를 때 건너뛴 사진 안내 (이미 분석한 사진 등)
-        if (s.pickNotice.isNotEmpty && (s.analysisRunning || s.analysisPaused))
+        if (s.pickNotice.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: SnapNote(s.pickNotice, icon: 'alert', top: 0),
@@ -1600,12 +1600,35 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
             "AI 추천: '${s.categoryById(_aiCategory)?.label ?? ''}' · 눌러서 바꿀 수 있어요",
             top: 8,
           ),
+        // 기본은 모두 선택. 빼고 싶은 사진을 눌러 선택 해제
         Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 10),
-          child: SnapSub(
-            sel.isEmpty
-                ? 'AI가 고른 사진 ${photos.length}장이에요. 빼고 싶은 사진을 눌러 선택하세요.'
-                : '${sel.length}장 선택됨 · 아래 버튼으로 앨범에서 뺄 수 있어요.',
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SnapSub(
+                  sel.isEmpty
+                      ? 'AI가 고른 사진 ${photos.length}장이 모두 선택돼 있어요. 빼고 싶은 사진을 눌러 선택을 해제하세요.'
+                      : '${photos.length}장 중 ${photos.length - sel.length}장 선택됨',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Pressable(
+                onTap: () => s.setAllDraftPhotos(sel.isNotEmpty),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: c.soft,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    sel.isEmpty ? '전체 해제' : '전체 선택',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: c.pk),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         GridView.builder(
@@ -1620,15 +1643,15 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
           itemCount: photos.length,
           itemBuilder: (_, i) {
             final d = photos[i];
-            final on = sel.contains(d.id);
-            // .ph.sel — 3px pri 테두리 + 오른쪽 위 체크 원
+            final on = !sel.contains(d.id); // 선택됨 = 앨범에 들어감
             return GestureDetector(
               onTap: () => s.toggleDraftPhoto(d.id),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // 선택 해제된 사진은 흐리게
                   Opacity(
-                    opacity: on ? 0.55 : 1,
+                    opacity: on ? 1 : 0.4,
                     child: PhotoTile(item: d),
                   ),
                   if (on)
@@ -1642,20 +1665,16 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
                     top: 4,
                     right: 5,
                     child: Container(
-                      width: 18,
-                      height: 18,
+                      width: 20,
+                      height: 20,
                       decoration: BoxDecoration(
                         color: on ? c.pri : const Color(0x99FFFFFF),
                         shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
                       ),
                       alignment: Alignment.center,
                       child: on
-                          ? const SnapIcon(
-                              'check',
-                              size: 12,
-                              color: Colors.white,
-                              strokeWidth: 2.6,
-                            )
+                          ? const SnapIcon('check', size: 12, color: Colors.white, strokeWidth: 2.6)
                           : null,
                     ),
                   ),
@@ -1664,15 +1683,13 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
             );
           },
         ),
-        if (sel.isNotEmpty)
-          SnapButton(
-            label: '선택한 사진 ${sel.length}장 제외',
-            ghost: true,
-            onTap: s.excludeSelectedDraftPhotos,
-          ),
         SnapButton(
-          label: photos.isEmpty ? '남은 사진이 없어요' : '앨범 만들기 (${photos.length}장)',
-          onTap: photos.isEmpty ? null : () => s.confirmAlbumDraft(_title.text),
+          label: photos.length - sel.length <= 0
+              ? '앨범에 넣을 사진을 골라 주세요'
+              : '앨범 만들기 (${photos.length - sel.length}장)',
+          onTap: photos.length - sel.length <= 0
+              ? null
+              : () => s.confirmAlbumDraft(_title.text),
         ),
         const SnapNote('만들기 전까지는 저장되지 않아요'),
       ],
