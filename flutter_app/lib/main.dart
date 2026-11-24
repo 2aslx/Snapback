@@ -124,7 +124,15 @@ class _SnapbackShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.sc;
     // 저장된 설정을 읽기 전에는 배경만 (초기 설정을 마친 사람에게 시작 안내가 깜빡이지 않게)
-    if (!state.ready) return Scaffold(backgroundColor: c.bg);
+    // 저장된 설정을 읽는 동안: iOS 시작 화면과 같은 앱 아이콘을 그대로 이어서 보여줌
+    if (!state.ready) {
+      return Scaffold(
+        backgroundColor: c.bg,
+        body: Center(
+          child: Image.asset('assets/brand/app_icon.png', width: 120, height: 120),
+        ),
+      );
+    }
     final showTabs = _tabScreens.contains(state.screen);
     final reduce = MediaQuery.of(context).disableAnimations;
     final bottomInset = MediaQuery.of(context).padding.bottom;

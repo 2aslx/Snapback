@@ -47,6 +47,7 @@ const Map<String, String> kIconPaths = {
   'back': '<path d="M15 4.5L7.5 12l7.5 7.5"/>',
   'close': '<path d="M6 6l12 12M18 6L6 18"/>',
   'next': '<path d="M9 4.5l7.5 7.5L9 19.5"/>',
+  'share': '<path d="M12 3v12M7.5 7.5L12 3l4.5 4.5"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/>',
   // 기록 기능 (Flutter 추가)
   'bookmark': '<path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>',
   'pencil': '<path d="M4 20l1-4L15.5 5.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M13.5 7.5l3 3"/>',

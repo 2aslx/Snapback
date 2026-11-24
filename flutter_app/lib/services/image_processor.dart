@@ -160,6 +160,32 @@ class ImageProcessor {
     );
   }
 
+  /// 다시 분석(재라벨링)용: 이미 분석한 사진의 AI 분석용 이미지(512px)만 다시 만든다.
+  /// iOS 는 사진 보관함 원본에서, 웹은 저장해 둔 1080px 미리보기에서. 원본이 없으면 null.
+  static Future<String?> analyzeUrlFor(PhotoItem d) async {
+    try {
+      if (!kIsWeb && d.assetId != null) {
+        final a = await AssetEntity.fromId(d.assetId!);
+        final b = await a?.thumbnailDataWithOption(
+          ThumbnailOption.ios(
+            size: const ThumbnailSize.square(kAnalyzeSize),
+            quality: 80,
+            deliveryMode: DeliveryMode.highQualityFormat,
+            resizeMode: ResizeMode.exact,
+            resizeContentMode: ResizeContentMode.fit,
+          ),
+        );
+        return b == null ? null : 'data:image/jpeg;base64,${base64Encode(b)}';
+      }
+      if (d.previewKey != null && PreviewStore.enabled) {
+        final bytes = await PreviewStore.get(d.previewKey!);
+        if (bytes == null) return null;
+        return await compute(_resizeAndEncode, _ResizeRequest(bytes, kAnalyzeSize, 80));
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// iOS 사진 보관함 에셋: 원본 파일을 통째로 읽지 않고 필요한 크기만 시스템에서 받아온다.
   static Future<ProcessedImage> processAsset(AssetEntity asset) async {
     Future<String> jpeg(int size, int quality) async {

@@ -124,7 +124,8 @@ class SnapbackState extends ChangeNotifier {
 
   int screen = 0;
   bool serverConnected = false;
-  String aiStatusText = '연결 확인 중…';
+  /// 서버·AI 문제가 있을 때만 경고 문구 (정상이면 빈 문자열 → 화면에 표시 안 함)
+  String aiStatusText = '';
 
   // Onboarding selections
   int scopeSelection = 0; // 0: 전체, 1: 앨범, 2: 직접, 3: 기간
@@ -321,7 +322,7 @@ class SnapbackState extends ChangeNotifier {
     if (!res.ok) {
       aiStatusText = '⚠️ 서버 연결 안 됨';
     } else if (res.keyOk) {
-      aiStatusText = 'AI 연결됨 ✓';
+      aiStatusText = '';
     } else {
       aiStatusText = '⚠️ API 키 확인 필요';
     }
@@ -1249,6 +1250,106 @@ class SnapbackState extends ChangeNotifier {
     _clearQueue();
     _liveActivity.cancel();
     go(5);
+  }
+
+  // ── 설정 > 사진 다시 분석하기 (재라벨링) ─────────────────────────
+  // 이미 분석한 사진의 설명(캡션·장소 유형·인물·배경·날씨·시간대)만 새로 만든다.
+  // 사진 id·날짜·위치와 그 사진을 쓰는 앨범·기록·찾은 사진은 그대로.
+  bool relabelRunning = false;
+  bool relabelFinished = false;
+  int relabelTotal = 0;
+  int relabelDone = 0;
+  int relabelSkipped = 0; // 원본을 다시 읽을 수 없는 사진
+  int relabelFailed = 0;
+  int _relabelRun = 0;
+
+  /// 다시 분석할 수 있는 사진 (데모 사진 제외)
+  List<PhotoItem> get relabelTargets => db.where((d) => d.id > 11).toList();
+
+  Future<void> relabelAll() async {
+    if (relabelRunning || analysisRunning) return;
+    if (!serverConnected) {
+      relabelFinished = false;
+      aiStatusText = ApiException('network').userMessage;
+      notifyListeners();
+      return;
+    }
+    final targets = relabelTargets;
+    final run = ++_relabelRun;
+    relabelRunning = true;
+    relabelFinished = false;
+    relabelTotal = targets.length;
+    relabelDone = relabelSkipped = relabelFailed = 0;
+    notifyListeners();
+    var next = 0;
+    Future<void> worker() async {
+      while (run == _relabelRun && next < targets.length) {
+        final d = targets[next++];
+        final url = await ImageProcessor.analyzeUrlFor(d);
+        if (run != _relabelRun) return;
+        if (url == null) {
+          relabelSkipped++;
+        } else {
+          try {
+            final ai = await api.analyzeImage(url);
+            if (run != _relabelRun) return;
+            final i = db.indexWhere((x) => x.id == d.id);
+            if (i >= 0) {
+              db[i] = _relabeled(db[i], ai);
+              await _saveDb();
+            }
+          } catch (_) {
+            relabelFailed++;
+          }
+        }
+        relabelDone++;
+        notifyListeners();
+      }
+    }
+
+    await Future.wait([
+      for (var w = 0; w < math.min(kAnalyzeConcurrency, targets.length); w++) worker(),
+    ]);
+    if (run != _relabelRun) return;
+    relabelRunning = false;
+    relabelFinished = true;
+    notifyListeners();
+  }
+
+  void cancelRelabel() {
+    _relabelRun++;
+    relabelRunning = false;
+    relabelFinished = false;
+    notifyListeners();
+  }
+
+  /// 새 AI 분석으로 설명만 바꾼 사진 (나머지 필드는 그대로)
+  PhotoItem _relabeled(PhotoItem d, Map<String, dynamic> ai) {
+    final rawFood = ai['food'];
+    return PhotoItem(
+      id: d.id,
+      fileKey: d.fileKey,
+      date: d.date,
+      place: (ai['place'] ?? '').toString(),
+      food: rawFood is List
+          ? rawFood.map((e) => e.toString()).toList()
+          : (rawFood is String && rawFood.isNotEmpty ? [rawFood] : <String>[]),
+      people: (ai['people'] ?? '').toString(),
+      background: (ai['background'] ?? '').toString(),
+      weather: (ai['weather'] ?? '').toString(),
+      time: (ai['time'] ?? '').toString(),
+      caption: (ai['caption'] ?? '').toString(),
+      emoji: d.emoji,
+      gps: d.gps,
+      exif: d.exif,
+      thumbDataUrl: d.thumbDataUrl,
+      hidden: d.hidden,
+      assetId: d.assetId,
+      assetW: d.assetW,
+      assetH: d.assetH,
+      previewKey: d.previewKey,
+      takenAtMs: d.takenAtMs,
+    );
   }
 
   void togglePauseAnalysis() {

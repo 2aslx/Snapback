@@ -9,6 +9,7 @@ import '../widgets/common_widgets.dart';
 import '../widgets/snap_runner.dart';
 import '../widgets/photo_image.dart';
 import '../widgets/map_popup.dart';
+import '../widgets/share_photo.dart';
 import 'record_screens.dart';
 
 // index.html(2aslx-patch-1) 의 섹션 5~15 + Flutter 추가 화면(16 앨범 상세).
@@ -750,11 +751,13 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
             ),
           ),
         ),
+        // 공유하기 (사진 정보 아래 · 기록 버튼 위)
+        _ShareButton(item: item, title: s.memoryTitle(item)),
         // 기록으로 남기기 / 나의 기록 보기
         SnapButton(
           label: record == null ? '기록으로 남기기' : '나의 기록 보기',
           icon: 'bookmark',
-          top: 20,
+          top: 10,
           onTap: record == null
               ? () => s.startRecord(item.id)
               : () => s.openRecord(record.id),
@@ -762,6 +765,40 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
       ],
     );
   }
+}
+
+/// 사진 상세의 '공유하기' — 누르면 시스템 공유 창 (원본을 가져오는 동안은 '준비 중')
+class _ShareButton extends StatefulWidget {
+  const _ShareButton({required this.item, required this.title});
+  final PhotoItem item;
+  final String title;
+
+  @override
+  State<_ShareButton> createState() => _ShareButtonState();
+}
+
+class _ShareButtonState extends State<_ShareButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) => Builder(
+    builder: (btnContext) => SnapButton(
+      label: _busy ? '공유 준비 중…' : '공유하기',
+      icon: _busy ? null : 'share',
+      ghost: true,
+      top: 20,
+      onTap: _busy
+          ? null
+          : () async {
+              setState(() => _busy = true);
+              try {
+                await sharePhoto(btnContext, widget.item, widget.title);
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+    ),
+  );
 }
 
 /// ⑤′ 기억 탭 — 지금까지 검색으로 찾은 사진들을 갤러리로. 누르면 사진 상세(관련된 추억 등).
@@ -1446,6 +1483,7 @@ class _Screen12SettingsState extends State<Screen12Settings> {
             ),
           ],
         ),
+        _RelabelSection(state: s),
         // Flutter 추가: iOS 앱이 연결할 API 서버 주소
         const SnapH3('서버', small: true),
         SnapSearchBar(
@@ -1456,9 +1494,89 @@ class _Screen12SettingsState extends State<Screen12Settings> {
           keyboardType: TextInputType.url,
           onSubmit: () => s.setServerUrl(_url.text),
         ),
-        SnapNote(s.aiStatusText),
+        if (s.aiStatusText.isNotEmpty) SnapNote(s.aiStatusText),
         // OpenStreetMap 이용 조건: 출처 표시
         const SnapNote('촬영 장소 주소: © OpenStreetMap 기여자'),
+      ],
+    );
+  }
+}
+
+/// 설정 > 사진 다시 분석하기: 이미 분석한 사진의 설명을 새로 만든다 (두 번 눌러 시작)
+class _RelabelSection extends StatefulWidget {
+  const _RelabelSection({required this.state});
+  final SnapbackState state;
+
+  @override
+  State<_RelabelSection> createState() => _RelabelSectionState();
+}
+
+class _RelabelSectionState extends State<_RelabelSection> {
+  bool _confirm = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final n = s.relabelTargets.length;
+    final busy = s.analysisRunning;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapGroup(
+          top: 12,
+          children: [
+            SnapRow(
+              leading: const IconBadge('sparkle'),
+              title: s.relabelRunning
+                  ? '다시 분석하는 중 · ${s.relabelDone} / ${s.relabelTotal}장'
+                  : _confirm
+                  ? '한 번 더 누르면 $n장을 다시 분석해요'
+                  : '사진 다시 분석하기',
+              subtitle: s.relabelRunning
+                  ? '앱을 쓰는 동안 계속 진행돼요'
+                  : '분석한 사진 $n장의 설명을 최신 AI로 새로 만들어요',
+              trailing: s.relabelRunning
+                  ? Pressable(
+                      onTap: s.cancelRelabel,
+                      child: Text('중지', style: TextStyle(fontSize: 15, color: c.pk)),
+                    )
+                  : const Chevron(),
+              onTap: s.relabelRunning || n == 0 || busy
+                  ? null
+                  : () {
+                      if (_confirm) {
+                        _confirm = false;
+                        s.relabelAll();
+                      } else {
+                        setState(() => _confirm = true);
+                      }
+                    },
+            ),
+          ],
+        ),
+        if (s.relabelRunning)
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4, right: 4),
+            child: SnapBar(
+              value: s.relabelTotal == 0 ? 0 : s.relabelDone / s.relabelTotal,
+              background: c.fill,
+              color: c.pri,
+            ),
+          ),
+        if (s.relabelFinished && !s.relabelRunning)
+          SnapNote(
+            [
+              '다시 분석 완료: ${s.relabelDone - s.relabelSkipped - s.relabelFailed}장',
+              if (s.relabelSkipped > 0) '원본을 찾을 수 없어 건너뜀 ${s.relabelSkipped}장',
+              if (s.relabelFailed > 0) '실패 ${s.relabelFailed}장',
+            ].join(' · '),
+          ),
+        if (busy && !s.relabelRunning)
+          const SnapNote('사진 분석이 끝난 뒤에 다시 분석할 수 있어요'),
+        if (n == 0) const SnapNote('아직 분석한 사진이 없어요'),
+        if (!s.relabelRunning && !s.relabelFinished && n > 0 && !busy)
+          const SnapNote('사진·앨범·기록은 그대로 두고 설명만 바꿔요 · 기록과 앨범도 그대로예요'),
       ],
     );
   }
