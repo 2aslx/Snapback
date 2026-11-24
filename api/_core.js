@@ -36,14 +36,150 @@ async function ask(content) {
 }
 
 // 프롬프트는 서버가 소유 (프론트에서 마음대로 못 바꿈)
-// 보이지 않거나 알 수 없는 항목은 "없음"·"알 수 없음"으로 쓰지 말고 비워 두게 한다 (화면에 쓸데없는 줄이 생기지 않게)
-const ANALYZE = '이 사진을 분석해 JSON만 출력(이름·신원 추측 금지). caption 은 항상 사진 내용을 한 문장으로 쓴다(문서·화면이면 무슨 문서인지). 나머지 항목은 사진에서 보이는 것만 적고, 보이지 않거나 판단할 수 없으면 "없음"·"알 수 없음" 대신 빈 문자열("") 또는 빈 배열로 둔다. people 은 사람이 보일 때만 인원수·옷차림을 적는다: {"caption":"한 문장","food":["음식"],"place":"장소 유형","people":"인원수·옷차림 등 특성","background":"배경·주요 사물","weather":"날씨","time":"낮/저녁/밤 중 하나 또는 빈 문자열"}';
+// ── 사진 분석 v2 ─────────────────────────────────────────────
+// 시각 · 의미 · 정보 추출 · 라이프로깅 4가지 관점. 기존 필드(caption·food·place·people·background·weather·time)도
+// 함께 채워 검색·앨범·관련된 추억이 그대로 동작한다. 특정 이미지·키워드를 하드코딩하지 않는다.
+const ANALYSIS_VERSION = 2;
+const ANALYZE =
+  '이 이미지를 분석해 JSON만 출력하라.\n' +
+  '[관점]\n' +
+  '1) 시각: 핵심 피사체와 구체적 시각 특징(예: 디자인·색상·패턴, 의류 종류·핏, 공간·가구), 부수적 객체.\n' +
+  '2) 의미: 이미지 유형(image_type), 출처 플랫폼(확인될 때만), 상위/세부 카테고리, 핵심 주제, 내용 요약.\n' +
+  '3) 정보 추출: 이미지 속 핵심 글자(extracted_text)와 유형에 맞는 구조화 정보(structured_data).\n' +
+  '4) 라이프로깅: 사용자가 이 이미지를 저장한 목적 추정(확정 아님), 의미 기반 검색 키워드, 어울리는 기록 종류.\n' +
+  '[규칙]\n' +
+  '- 스크린샷·문서는 좋아요·댓글·공유·구독 버튼, 상태 표시줄 같은 화면 UI 요소를 무시하고 본문·제품명·문서 내용을 우선한다.\n' +
+  '- place 는 실제로 촬영된 물리적 장소 유형(카페, 해변, 교실 등)만 쓴다. 스크린샷·문서·디지털 이미지는 place 를 빈 문자열로 둔다. 유튜브·인스타그램 같은 플랫폼은 place 가 아니라 source_platform 이다.\n' +
+  '- 이미지에서 확인되지 않는 가격·브랜드·제품명·수치는 절대 만들어 내지 않는다. 가려지거나 흐린 글자는 "(불확실)"을 붙인다.\n' +
+  '- 건강·의료 문서는 적힌 항목·수치·단위만 옮기고 의학적 판단·진단·조언을 쓰지 않는다.\n' +
+  '- 사람의 이름·신원 추측, 문서에 적힌 성명·생년월일·주민등록번호·전화번호·계좌번호·주소·이메일 같은 개인 식별 정보는 어디에도(extracted_text·structured_data·caption 포함) 적지 않는다.\n' +
+  '- source_platform 은 로고·앱 이름·고유한 화면 구성으로 분명할 때만 적고, 짐작하지 않는다(애매하면 빈 문자열).\n' +
+  '- 보이지 않거나 판단할 수 없는 항목은 "없음"·"알 수 없음" 대신 빈 문자열("") 또는 빈 배열로 둔다.\n' +
+  '- structured_data 의 키는 한국어로, 유형에 맞게 자유롭게 구성한다(예: 추천 제품 목록과 추천 이유, 시험명·등급·발급기관, 항목·수치·단위, 재료·조리 순서).\n' +
+  '[출력 JSON]\n' +
+  '{"image_type":"photo|screenshot|document|shopping_list|recipe|certificate|receipt|health_report|ticket|menu|chat|note|artwork|기타 영어 소문자 유형",' +
+  '"source_platform":"확인될 때만, 아니면 빈 문자열",' +
+  '"semantic_category":["상위 카테고리","세부 카테고리"],' +
+  '"main_topic":"핵심 주제 한 구절",' +
+  '"content_summary":"주요 내용 1~2문장",' +
+  '"extracted_text":"핵심 글자 발췌(최대 300자)",' +
+  '"structured_data":{},' +
+  '"inferred_purpose":"저장 목적 추정 한 문장",' +
+  '"search_keywords":["의미 기반 검색어·관련 표현 5~10개"],' +
+  '"suggested_record_type":"moment|place|taste|shopping|document|info",' +
+  '"caption":"이미지 내용 한 문장(항상 작성)",' +
+  '"food":["보이는 음식"],"place":"촬영 장소 유형 또는 빈 문자열","people":"사람이 보일 때만 인원수·옷차림",' +
+  '"background":"배경·부수적 객체와 핵심 피사체의 구체적 시각 특징","weather":"날씨","time":"낮/저녁/밤 중 하나 또는 빈 문자열"}';
+
+// 글자가 많은 유형: 1차(512px·low) 뒤 고해상도로 한 번 더 분석할 대상
+const TEXT_DENSE = new Set(['screenshot', 'document', 'shopping_list', 'recipe', 'certificate', 'receipt', 'health_report', 'ticket', 'menu', 'chat', 'note']);
+const RECORD_TYPES = ['moment', 'place', 'taste', 'shopping', 'document', 'info'];
+const PLATFORM_WORDS = /(소셜|SNS|인스타|유튜브|틱톡|페이스북|트위터|온라인|웹사이트|앱 화면|화면|스크린샷|social|instagram|youtube|tiktok)/i;
+
+// structured_data 를 JSON 길이 상한 안으로 줄인다 (기기 저장·검색 요청 크기 보호)
+function capJson(v, max = 1500, depth = 0) {
+  const fits = x => JSON.stringify(x).length <= max;
+  if (v == null) return {};
+  if (typeof v === 'string') return v.slice(0, 200);
+  if (typeof v !== 'object') return v;
+  if (depth > 3) return Array.isArray(v) ? [] : {};
+  let out = Array.isArray(v) ? v.slice(0, 12).map(x => capJson(x, max, depth + 1))
+    : Object.fromEntries(Object.entries(v).slice(0, 16).map(([k, x]) => [String(k).slice(0, 30), capJson(x, max, depth + 1)]));
+  while (!fits(out)) {
+    if (Array.isArray(out)) { if (!out.length) break; out = out.slice(0, out.length - 1); }
+    else { const ks = Object.keys(out); if (!ks.length) break; delete out[ks[ks.length - 1]]; }
+  }
+  return out;
+}
+
+// 개인 식별 정보 제거 (프롬프트로 막아도 새어 나올 수 있어 서버에서 한 번 더)
+// 키 이름으로 판단: '이름'·'name' 은 제품 이름일 수 있어 정확히 그 단어일 때만, 나머지는 포함되면 제거
+const PII_KEY = /(성명|생년월일|주민|전화|연락처|휴대폰|핸드폰|계좌|주소|이메일|e-?mail|birth|phone|mobile|address|account|ssn|응시자|수험자|소유자|holder)/i;
+// '이름'·'name' 은 목록 안에선 제품 이름일 수 있어, 문서 맨 위 단계(소지자 이름)에서만 개인 정보로 본다
+const NAME_KEY = /^\s*(이름|name|full ?name)\s*$/i;
+const isPiiKey = (k, depth) => PII_KEY.test(k) || (depth === 0 && NAME_KEY.test(k));
+function scrubPII(text) {
+  return String(text)
+    .replace(/(성\s*명|생년월일|주민등록번호|전화번호|연락처|휴대폰|계좌번호|주\s*소|이메일)\s*[:：]?\s*[^\s,·|/]+/g, '')
+    .replace(/\d{6}\s*-\s*[1-4]\d{6}/g, '')                        // 주민등록번호
+    .replace(/(01[016789]|0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}/g, '') // 전화번호
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '')                          // 이메일
+    .replace(/\b\d{2,6}-\d{2,6}-\d{2,8}(-\d{1,6})?\b/g, '')           // 계좌번호 형태
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+/// structured_data 에서 개인 정보 키에 들어 있던 값들 (예: 성명 → '김테스트') — 다른 글에서도 지우기 위해
+function piiValues(v, out = new Set(), depth = 0) {
+  if (Array.isArray(v)) v.forEach(x => piiValues(x, out, depth + 1));
+  else if (v && typeof v === 'object') {
+    for (const [k, x] of Object.entries(v)) {
+      if (isPiiKey(k, depth) && (typeof x === 'string' || typeof x === 'number') && String(x).trim().length >= 2) out.add(String(x).trim());
+      else piiValues(x, out, depth + 1);
+    }
+  }
+  return out;
+}
+
+function scrubData(v, depth = 0) {
+  if (typeof v === 'string') return scrubPII(v);
+  if (Array.isArray(v)) return v.map(x => scrubData(x, depth + 1));
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).filter(([k]) => !isPiiKey(k, depth)).map(([k, x]) => [k, scrubData(x, depth + 1)]));
+  }
+  return v;
+}
+
+function normalizeAnalysis(r) {
+  // 개인 정보 값(성명 등)을 모아 두고 캡션·요약·발췌·키워드에서도 지운다
+  const pii = [...piiValues(r.structured_data)];
+  const strip = t => pii.reduce((acc, v) => acc.split(v).join(''), t).replace(/\s{2,}/g, ' ').replace(/^[의\s]+/, '').trim();
+  const str = (v, n) => (typeof v === 'string' ? strip(v.trim()).slice(0, n) : '');
+  const arr = (v, n, each) => (Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : [])
+    .map(x => str(String(x), each)).filter(Boolean).slice(0, n);
+  const imageType = (str(r.image_type, 30).toLowerCase().replace(/[^a-z_]/g, '') || 'photo');
+  const source = str(r.source_platform, 40);
+  let place = str(r.place, 60);
+  // 플랫폼·화면을 촬영 장소로 적은 경우 비운다 ('소셜 미디어'는 장소가 아님)
+  if (imageType !== 'photo' && (TEXT_DENSE.has(imageType) || source)) place = '';
+  if (PLATFORM_WORDS.test(place)) place = '';
+  const rec = str(r.suggested_record_type, 20);
+  return {
+    analysis_version: ANALYSIS_VERSION,
+    image_type: imageType,
+    text_dense: TEXT_DENSE.has(imageType),
+    source_platform: source,
+    semantic_category: arr(r.semantic_category, 4, 30),
+    main_topic: str(r.main_topic, 80),
+    content_summary: scrubPII(str(r.content_summary, 300)),
+    extracted_text: scrubPII(str(r.extracted_text, 600)),
+    structured_data: capJson(scrubData(r.structured_data && typeof r.structured_data === 'object' ? r.structured_data : {})),
+    inferred_purpose: str(r.inferred_purpose, 120),
+    search_keywords: arr(r.search_keywords, 12, 24),
+    suggested_record_type: RECORD_TYPES.includes(rec) ? rec : 'moment',
+    caption: scrubPII(str(r.caption, 160)),
+    food: arr(r.food, 8, 30),
+    place,
+    people: str(r.people, 120),
+    background: str(r.background, 200),
+    weather: str(r.weather, 30),
+    time: ['낮', '저녁', '밤', '아침', '오후', '새벽'].includes(str(r.time, 10)) ? str(r.time, 10) : '',
+  };
+}
+
 const searchPrompt = (db, hist, extra = '') =>
   '너는 스마트 갤러리 기억 검색 엔진이다. 사진 DB에서 사용자의 흐릿한 기억과 대화 기록에 가장 맞는 사진을 찾아라.\nDB:' + JSON.stringify(db) +
   '\n대화:' + JSON.stringify(hist) +
   '\n규칙: 대화에 이미 나온 질문과 같거나 비슷한 주제(건너뛴 질문 포함)는 절대 다시 묻지 마라. 더 이상 가를 새 질문이 없거나 후보가 뚜렷하면 question을 null로 반환하라.' +
   (extra ? '\n' + extra : '') +
   '\nJSON만 출력: {"ranked":[{"id":숫자,"score":0-100,"matched":["맞은 단서"],"missing":["확인 안 된 단서"]}],"question":{"text":"아직 묻지 않은, 후보를 가장 잘 가르는 질문 하나","options":["선택지 2~3개"]} 또는 null}';
+
+// 검색·앨범·제안 요청용 사진 정보: 썸네일·구조화 데이터 제외, 긴 글자는 잘라 요청 크기·토큰을 일정하게
+const slimPhoto = ({ thumb, e, data, ...d }) => {
+  if (typeof d.text === 'string' && d.text.length > 150) d.text = d.text.slice(0, 150);
+  if (typeof d.summary === 'string' && d.summary.length > 160) d.summary = d.summary.slice(0, 160);
+  if (Array.isArray(d.kw)) d.kw = d.kw.slice(0, 8);
+  return d;
+};
 
 const normQ = s => String(s || '').replace(/[\s?!.,'"`~]/g, '').toLowerCase();
 const askedQuestions = hist => hist.map(h => String(h).match(/^Q:\s*(.+?)\s*\/\s*A:/)?.[1]).filter(Boolean);
@@ -81,8 +217,11 @@ const clientIp = req => String(req.headers['x-forwarded-for'] || '').split(',')[
 
 async function analyze(b) {
   if (typeof b.image !== 'string' || !b.image.startsWith('data:image/')) return [400, { error: 'bad_image' }];
-  // detail:'low' — 모델이 512px 한 장으로 본다 (앱도 512px로 보냄). 빠르고 토큰이 적다.
-  return [200, await ask([{ type: 'input_text', text: ANALYZE }, { type: 'input_image', image_url: b.image, detail: 'low' }])];
+  // 기본 detail:'low' (앱이 512px로 보냄, 빠르고 저렴). 글자가 많은 이미지·사용자의 '다시 분석하기'는
+  // 앱이 1280px 이미지와 detail:'high' 를 보내 글자까지 정밀하게 읽는다.
+  const detail = b.detail === 'high' ? 'high' : 'low';
+  const r = await ask([{ type: 'input_text', text: ANALYZE }, { type: 'input_image', image_url: b.image, detail }]);
+  return [200, { ...normalizeAnalysis(r), detail }];
 }
 
 // wantQuestion: 사용자가 '질문 한 번 더하기'를 눌렀을 때 — 질문 개수 제한 없이 반드시 하나 만들도록 요청
@@ -90,7 +229,7 @@ const WANT_Q = '사용자가 추가 질문을 요청했다. 현재 상위 후보
 
 async function search(b) {
   if (!Array.isArray(b.db) || !Array.isArray(b.hist) || b.db.length > 300) return [400, { error: 'bad_request' }];
-  const db = b.db.map(({ thumb, e, ...d }) => d); // 썸네일은 모델에 보내지 않음
+  const db = b.db.map(slimPhoto); // 썸네일·구조화 정보는 모델에 보내지 않음
   const hist = b.hist.slice(-12);
   const want = b.wantQuestion === true;
   const asked = askedQuestions(hist);
@@ -127,7 +266,7 @@ const albumPrompt = (db, request, cats) =>
 async function album(b) {
   const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
   if (!request || !Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
-  const db = b.db.map(({ thumb, e, ...d }) => d);
+  const db = b.db.map(slimPhoto);
   const known = new Set(db.map(d => d.id));
   const cats = cleanCats(b.categories);
   const r = await ask([{ type: 'input_text', text: albumPrompt(db, request, cats) }]);
@@ -230,7 +369,7 @@ const suggestPrompt = db =>
 async function suggest(b) {
   if (!Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
   if (b.db.length === 0) return [200, { suggestions: [] }];
-  const db = b.db.map(({ thumb, e, ...d }) => d);
+  const db = b.db.map(slimPhoto);
   const r = await ask([{ type: 'input_text', text: suggestPrompt(db) }]);
   const suggestions = [...new Set((Array.isArray(r.suggestions) ? r.suggestions : [])
     .map(x => String(x || '').trim().slice(0, 30)).filter(Boolean))].slice(0, 3);

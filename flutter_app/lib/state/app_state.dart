@@ -522,7 +522,12 @@ class SnapbackState extends ChangeNotifier {
     recordDraft = PhotoRecord(
       id: 0,
       photoId: photoId,
-      type: hasPlace || photo.gps != null ? 'place' : 'moment',
+      type: switch (photo.suggestedRecordType) {
+        'place' => 'place',
+        'document' || 'shopping' || 'info' => 'document',
+        'moment' || 'taste' => 'moment',
+        _ => hasPlace || photo.gps != null ? 'place' : 'moment',
+      },
       title: hasPlace ? photo.place : '',
       location: loc.isNotEmpty ? loc : (hasPlace ? photo.place : ''),
       date: photo.date,
@@ -1215,23 +1220,28 @@ class SnapbackState extends ChangeNotifier {
         previewKey = 'pv:${entry.key}';
         await PreviewStore.put(previewKey, processed.previewBytes!);
       }
-      final ai = await api.analyzeImage(processed.analyzeDataUrl);
-      final rawFood = ai['food'];
-      final foodList = rawFood is List
-          ? rawFood.map((e) => e.toString()).toList()
-          : (rawFood is String && rawFood.isNotEmpty ? [rawFood] : <String>[]);
+      var ai = await api.analyzeImage(processed.analyzeDataUrl);
+      // 스크린샷·문서처럼 글자가 많은 이미지면 1280px + 고해상도로 한 번 더 정밀 분석
+      if (ai['text_dense'] == true) {
+        final hi = entry.asset != null
+            ? await hiResDataUrlForAsset(entry.asset!)
+            : (processed.previewBytes != null
+                  ? 'data:image/jpeg;base64,${base64Encode(processed.previewBytes!)}'
+                  : null);
+        if (hi != null) {
+          try {
+            ai = await api.analyzeImage(hi, detail: 'high');
+          } catch (_) {
+            // 정밀 분석이 실패하면 1차 결과를 그대로 쓴다
+          }
+        }
+      }
 
       final item = PhotoItem(
         id: _nextId++,
         fileKey: entry.key,
         date: processed.dateStr,
-        place: (ai['place'] ?? '알 수 없음').toString(),
-        food: foodList,
-        people: (ai['people'] ?? '').toString(),
-        background: (ai['background'] ?? '').toString(),
-        weather: (ai['weather'] ?? '알 수 없음').toString(),
-        time: (ai['time'] ?? '알 수 없음').toString(),
-        caption: (ai['caption'] ?? '').toString(),
+        place: '',
         gps: processed.gps,
         exif: processed.hasExifDate,
         thumbDataUrl: processed.thumbDataUrl,
@@ -1240,7 +1250,7 @@ class SnapbackState extends ChangeNotifier {
         assetH: entry.asset?.height,
         previewKey: previewKey,
         takenAtMs: processed.takenAt?.millisecondsSinceEpoch,
-      );
+      ).withAnalysis(ai);
       if (db.any((d) => d.fileKey == entry.key)) return; // 이미 저장됨 (중복 방지)
       db.add(item);
       await _saveDb();
@@ -1358,6 +1368,46 @@ class SnapbackState extends ChangeNotifier {
       relabelRunning ||
       (relabelFinished && !analysisRunning && !analysisPaused && pickQueue.isEmpty);
 
+  // ── 사진 상세 > 이 사진만 다시 분석하기 (고해상도 정밀 분석) ────────────
+  /// 지금 다시 분석 중인 사진 id
+  int? reanalyzingId;
+  String? reanalyzeError;
+
+  Future<void> reanalyzePhoto(int id) async {
+    final d = photoById(id);
+    if (d == null || reanalyzingId != null) return;
+    if (!serverConnected) {
+      reanalyzeError = ApiException('network').userMessage;
+      notifyListeners();
+      return;
+    }
+    reanalyzingId = id;
+    reanalyzeError = null;
+    notifyListeners();
+    try {
+      // 원본에서 1280px(웹은 1080px 미리보기)를 만들어 detail:'high' 로 분석
+      final hi = await recordImageDataUrl(d);
+      final url = hi ?? await ImageProcessor.analyzeUrlFor(d);
+      if (url == null) {
+        reanalyzeError = '원본 사진을 찾을 수 없어 다시 분석할 수 없어요';
+      } else {
+        final ai = await api.analyzeImage(url, detail: hi != null ? 'high' : 'low');
+        final i = db.indexWhere((x) => x.id == id);
+        if (i >= 0) {
+          db[i] = db[i].withAnalysis(ai);
+          await _saveDb();
+        }
+      }
+    } on ApiException catch (e) {
+      reanalyzeError = e.userMessage;
+    } catch (e) {
+      reanalyzeError = '다시 분석하지 못했어요 ($e)';
+    } finally {
+      reanalyzingId = null;
+      notifyListeners();
+    }
+  }
+
   void cancelRelabel() {
     _liveActivity.cancel();
     _relabelRun++;
@@ -1367,33 +1417,8 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// 새 AI 분석으로 설명만 바꾼 사진 (나머지 필드는 그대로)
-  PhotoItem _relabeled(PhotoItem d, Map<String, dynamic> ai) {
-    final rawFood = ai['food'];
-    return PhotoItem(
-      id: d.id,
-      fileKey: d.fileKey,
-      date: d.date,
-      place: (ai['place'] ?? '').toString(),
-      food: rawFood is List
-          ? rawFood.map((e) => e.toString()).toList()
-          : (rawFood is String && rawFood.isNotEmpty ? [rawFood] : <String>[]),
-      people: (ai['people'] ?? '').toString(),
-      background: (ai['background'] ?? '').toString(),
-      weather: (ai['weather'] ?? '').toString(),
-      time: (ai['time'] ?? '').toString(),
-      caption: (ai['caption'] ?? '').toString(),
-      emoji: d.emoji,
-      gps: d.gps,
-      exif: d.exif,
-      thumbDataUrl: d.thumbDataUrl,
-      hidden: d.hidden,
-      assetId: d.assetId,
-      assetW: d.assetW,
-      assetH: d.assetH,
-      previewKey: d.previewKey,
-      takenAtMs: d.takenAtMs,
-    );
-  }
+  PhotoItem _relabeled(PhotoItem d, Map<String, dynamic> ai) => d.withAnalysis(ai);
+
 
   void togglePauseAnalysis() {
     analysisPaused = !analysisPaused;
@@ -1790,6 +1815,10 @@ class SnapbackState extends ChangeNotifier {
       ...d.background.split(RegExp(r'[ ,]+')),
       ...d.place.split(RegExp(r'[()\s]+')),
       ...d.food,
+      // 분석 v2: 의미 카테고리·검색 키워드도 '비슷한 분위기' 계산에 사용
+      ...d.semanticCategory,
+      ...d.searchKeywords,
+      if (d.imageType.isNotEmpty && d.imageType != 'photo') d.imageType,
     ];
     return raw
         .where((x) => x.isNotEmpty && !{'알', '수', '없음'}.contains(x))

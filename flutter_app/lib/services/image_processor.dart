@@ -221,6 +221,27 @@ class ImageProcessor {
   }
 }
 
+/// 정밀 분석용 큰 이미지 크기 (글자를 읽을 수 있게 긴 변 1280px, 비율 유지·자르지 않음)
+const kDetailSize = 1280;
+
+/// 사진 보관함 에셋 → 정밀 분석용 1280px JPEG (분석 처음, 글자가 많은 이미지일 때)
+Future<String?> hiResDataUrlForAsset(AssetEntity a) async {
+  try {
+    final b = await a.thumbnailDataWithOption(
+      ThumbnailOption.ios(
+        size: const ThumbnailSize.square(kDetailSize),
+        quality: 82,
+        deliveryMode: DeliveryMode.highQualityFormat,
+        resizeMode: ResizeMode.exact,
+        resizeContentMode: ResizeContentMode.fit,
+      ),
+    );
+    return b == null ? null : 'data:image/jpeg;base64,${base64Encode(b)}';
+  } catch (_) {
+    return null;
+  }
+}
+
 /// 기록 초안용 큰 이미지 (문서 글자를 읽을 수 있게 긴 변 1280px).
 /// iOS 는 사진 보관함 원본에서, 웹은 저장해 둔 1080px 미리보기에서. 없으면 null(분석 정보만 사용).
 Future<String?> recordImageDataUrl(PhotoItem d) async {

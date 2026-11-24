@@ -708,26 +708,45 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         .map((x) => x.trim())
         .where((x) => x.isNotEmpty && !isUnknownInfo(x))
         .join(' · ');
+    final placeText = join([item.place, s.placeNameFor(item) ?? '']);
     final info = <(String, String, String)>[
-      ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
-      // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
-      (
-        'pin',
-        '촬영 장소',
-        // GPS 만 있고 장소 이름·주소가 아직 없으면 지도로 볼 수 있게 줄은 남긴다
-        join([item.place, s.placeNameFor(item) ?? '']).isNotEmpty
-            ? join([item.place, s.placeNameFor(item) ?? ''])
-            : (item.gps != null ? '위치 정보 있음' : ''),
-      ),
-      ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
-      ('palette', '분위기·특징', join([item.weather, item.caption])),
+      if (item.isInfoImage) ...[
+        // 스크린샷·문서 등 정보성 이미지: 내용 중심 (촬영 장소 대신 출처)
+        ('calendar', '저장 날짜', item.date),
+        (
+          'image',
+          '이미지 유형',
+          join([imageTypeLabel(item.imageType), ...item.semanticCategory.take(2)]),
+        ),
+        ('store', '출처', item.sourcePlatform),
+        ('target', '핵심 주제', item.mainTopic),
+        ('doc', '주요 내용', item.contentSummary),
+        // 위치 정보가 실제로 있는 경우만 (없으면 '촬영 장소' 줄을 아예 표시하지 않음)
+        if (item.gps != null)
+          ('pin', '촬영 장소', placeText.isNotEmpty ? placeText : '위치 정보 있음'),
+      ] else ...[
+        ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
+        // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
+        (
+          'pin',
+          '촬영 장소',
+          // GPS 만 있고 장소 이름·주소가 아직 없으면 지도로 볼 수 있게 줄은 남긴다
+          placeText.isNotEmpty
+              ? placeText
+              : (item.gps != null ? '위치 정보 있음' : ''),
+        ),
+        ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
+        ('palette', '분위기·특징', join([item.weather, item.caption])),
+      ],
     ].where((x) => x.$3.isNotEmpty).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SnapbackTopBar(
-          title: item.place.isEmpty ? '사진' : item.place,
+          title: item.isInfoImage
+              ? imageTypeLabel(item.imageType)
+              : (item.place.isEmpty ? '사진' : item.place),
           onBack: () {
             if (!s.backFromRelated()) s.go(s.detailReturn);
           },
@@ -817,6 +836,57 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
                         ),
                     },
                   ),
+                  // 관련 키워드 (의미 기반 검색어)
+                  if (item.searchKeywords.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final k in item.searchKeywords.take(8))
+                            SnapTag(label: '#$k'),
+                        ],
+                      ),
+                    ),
+                  // 추출된 정보 미리보기 (structured_data 핵심 3~5개)
+                  if (structuredPreview(item.structuredData) case final lines
+                      when lines.isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      decoration: BoxDecoration(
+                        color: c.soft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '추출된 정보',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: c.pk,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          for (final l in lines)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(
+                                keepWords('•  $l'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 14, height: 1.4, color: c.ink),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  // 이 사진만 고해상도로 다시 분석
+                  _ReanalyzeLink(state: s, item: item),
                 ],
               ],
             ),
@@ -834,6 +904,69 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
               : () => s.openRecord(record.id),
         ),
       ],
+    );
+  }
+}
+
+/// 사진 정보 카드 아래쪽 '다시 분석하기' — 이 사진 한 장만 고해상도(글자까지)로 다시 분석
+class _ReanalyzeLink extends StatelessWidget {
+  const _ReanalyzeLink({required this.state, required this.item});
+  final SnapbackState state;
+  final PhotoItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final c = context.sc;
+    final busy = s.reanalyzingId == item.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.analysisVersion >= 2
+                      ? '정보가 정확하지 않다면 다시 분석해 보세요'
+                      : '예전 방식으로 분석된 사진이에요',
+                  style: TextStyle(fontSize: 12.5, color: c.mute),
+                ),
+              ),
+              Pressable(
+                onTap: busy || s.reanalyzingId != null
+                    ? null
+                    : () => s.reanalyzePhoto(item.id),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+                  decoration: BoxDecoration(
+                    color: c.soft,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SnapIcon(busy ? 'refresh' : 'sparkle', size: 15, color: c.pk),
+                      const SizedBox(width: 4),
+                      Text(
+                        busy ? '정밀 분석 중…' : '다시 분석하기',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: c.pk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (s.reanalyzeError != null && !busy)
+            SnapNote(s.reanalyzeError!, icon: 'alert', top: 6),
+        ],
+      ),
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class PhotoItem {
   PhotoItem({
     required this.id,
@@ -20,6 +22,17 @@ class PhotoItem {
     this.assetH,
     this.previewKey,
     this.takenAtMs,
+    this.analysisVersion = 1,
+    this.imageType = '',
+    this.sourcePlatform = '',
+    this.semanticCategory = const [],
+    this.mainTopic = '',
+    this.contentSummary = '',
+    this.extractedText = '',
+    this.inferredPurpose = '',
+    this.searchKeywords = const [],
+    this.suggestedRecordType = '',
+    this.structuredData = const {},
   });
 
   final int id;
@@ -65,6 +78,35 @@ class PhotoItem {
   /// 촬영 시각 (ms). '그날의 사진' 대표사진(가장 가까운 시각) 계산용. 기존 데이터에는 없을 수 있음.
   final int? takenAtMs;
 
+  // ── 분석 v2 (구버전 데이터는 기본값: analysisVersion 1, 나머지 빈 값) ──
+  /// 1 = 기존(캡션·장소·인물 등), 2 = 시각·의미·정보 추출·라이프로깅 분석
+  final int analysisVersion;
+
+  /// photo · screenshot · document · shopping_list · recipe · certificate · receipt · health_report …
+  final String imageType;
+
+  /// 유튜브 쇼츠, 인스타그램 등 (확인될 때만)
+  final String sourcePlatform;
+  final List<String> semanticCategory;
+  final String mainTopic;
+  final String contentSummary;
+
+  /// 핵심 글자 발췌 (기기 저장 최대 600자)
+  final String extractedText;
+
+  /// AI 가 추정한 저장 목적 (확정 아님)
+  final String inferredPurpose;
+  final List<String> searchKeywords;
+
+  /// moment · place · taste · shopping · document · info
+  final String suggestedRecordType;
+
+  /// 유형별 구조화 정보 (예: 제품 목록, 시험명·등급, 항목·수치·단위). 기기 저장 최대 약 1.5KB
+  final Map<String, dynamic> structuredData;
+
+  /// 글자가 많은 정보성 이미지 (사진 정보 카드를 정보 중심으로 표시)
+  bool get isInfoImage => kTextDenseTypes.contains(imageType);
+
   Map<String, dynamic> toJson({bool includeThumb = true}) => {
         'id': id,
         if (fileKey != null) 'key': fileKey,
@@ -87,7 +129,62 @@ class PhotoItem {
         if (includeThumb && assetH != null) 'ah': assetH,
         if (includeThumb && previewKey != null) 'pv': previewKey,
         if (includeThumb && takenAtMs != null) 'ts': takenAtMs,
+        // 분석 v2: 검색·앨범에는 의미 필드(요약된 글자 포함)만, 구조화 정보는 기기에만 저장
+        if (analysisVersion > 1) 'v': analysisVersion,
+        if (imageType.isNotEmpty) 'type': imageType,
+        if (sourcePlatform.isNotEmpty) 'src': sourcePlatform,
+        if (semanticCategory.isNotEmpty) 'cat': semanticCategory,
+        if (mainTopic.isNotEmpty) 'topic': mainTopic,
+        if (contentSummary.isNotEmpty) 'summary': contentSummary,
+        if (extractedText.isNotEmpty)
+          'text': includeThumb ? extractedText : _cut(extractedText, 150),
+        if (searchKeywords.isNotEmpty) 'kw': searchKeywords,
+        if (includeThumb && inferredPurpose.isNotEmpty) 'purpose': inferredPurpose,
+        if (includeThumb && suggestedRecordType.isNotEmpty) 'rec': suggestedRecordType,
+        if (includeThumb && structuredData.isNotEmpty) 'data': structuredData,
       };
+
+  /// AI 분석 결과(서버 /api/analyze 응답)로 설명만 바꾼 사진. id·날짜·위치·원본 연결은 그대로.
+  PhotoItem withAnalysis(Map<String, dynamic> ai) {
+    String s(String k) => (ai[k] ?? '').toString().trim();
+    final data = ai['structured_data'];
+    var structured = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    // 기기 저장 용량 보호 (서버도 줄이지만 한 번 더)
+    if (jsonEncode(structured).length > 1600) structured = {};
+    return PhotoItem(
+      id: id,
+      fileKey: fileKey,
+      date: date,
+      place: s('place'),
+      food: _strList(ai['food']),
+      people: s('people'),
+      background: s('background'),
+      weather: s('weather'),
+      time: s('time'),
+      caption: s('caption'),
+      emoji: emoji,
+      gps: gps,
+      exif: exif,
+      thumbDataUrl: thumbDataUrl,
+      hidden: hidden,
+      assetId: assetId,
+      assetW: assetW,
+      assetH: assetH,
+      previewKey: previewKey,
+      takenAtMs: takenAtMs,
+      analysisVersion: (ai['analysis_version'] as num?)?.toInt() ?? 1,
+      imageType: s('image_type'),
+      sourcePlatform: s('source_platform'),
+      semanticCategory: _strList(ai['semantic_category']),
+      mainTopic: s('main_topic'),
+      contentSummary: s('content_summary'),
+      extractedText: _cut(s('extracted_text'), 600),
+      inferredPurpose: s('inferred_purpose'),
+      searchKeywords: _strList(ai['search_keywords']),
+      suggestedRecordType: s('suggested_record_type'),
+      structuredData: structured,
+    );
+  }
 
   factory PhotoItem.fromJson(Map<String, dynamic> j) {
     final rawFood = j['food'];
@@ -123,9 +220,78 @@ class PhotoItem {
       assetH: (j['ah'] as num?)?.toInt(),
       previewKey: j['pv'] as String?,
       takenAtMs: (j['ts'] as num?)?.toInt(),
+      analysisVersion: (j['v'] as num?)?.toInt() ?? 1,
+      imageType: (j['type'] ?? '').toString(),
+      sourcePlatform: (j['src'] ?? '').toString(),
+      semanticCategory: _strList(j['cat']),
+      mainTopic: (j['topic'] ?? '').toString(),
+      contentSummary: (j['summary'] ?? '').toString(),
+      extractedText: (j['text'] ?? '').toString(),
+      inferredPurpose: (j['purpose'] ?? '').toString(),
+      searchKeywords: _strList(j['kw']),
+      suggestedRecordType: (j['rec'] ?? '').toString(),
+      structuredData: j['data'] is Map ? Map<String, dynamic>.from(j['data'] as Map) : const {},
     );
   }
 }
+
+/// 글자가 많은 정보성 이미지 유형 (서버 TEXT_DENSE 와 같음)
+const kTextDenseTypes = {
+  'screenshot', 'document', 'shopping_list', 'recipe', 'certificate', 'receipt',
+  'health_report', 'ticket', 'menu', 'chat', 'note',
+};
+
+/// 이미지 유형 한국어 이름
+String imageTypeLabel(String t) => const {
+      'photo': '사진',
+      'screenshot': '스크린샷',
+      'document': '문서',
+      'shopping_list': '쇼핑 리스트',
+      'recipe': '레시피',
+      'certificate': '인증서·자격증',
+      'receipt': '영수증',
+      'health_report': '건강검진표',
+      'ticket': '티켓',
+      'menu': '메뉴판',
+      'chat': '대화 캡처',
+      'note': '메모',
+      'artwork': '그림·작품',
+    }[t] ??
+    (t.isEmpty ? '' : t);
+
+/// structured_data 의 핵심 항목을 '키: 값' 줄로 (사진 정보 카드 미리보기, 최대 [max]줄)
+List<String> structuredPreview(Map<String, dynamic> m, {int max = 5}) {
+  String fmt(Object? v) {
+    if (v is List) {
+      final items = v.take(3).map((e) {
+        if (e is Map) {
+          return e.values.where((x) => x is String || x is num).take(2).join(' ');
+        }
+        return '$e';
+      }).where((x) => x.trim().isNotEmpty);
+      final more = v.length > 3 ? ' 외 ${v.length - 3}개' : '';
+      return items.join(', ') + more;
+    }
+    if (v is Map) {
+      return v.entries.take(3).map((e) => '${e.key} ${fmt(e.value)}').join(', ');
+    }
+    return v == null ? '' : '$v';
+  }
+
+  final out = <String>[];
+  for (final e in m.entries) {
+    if (out.length >= max) break;
+    final t = fmt(e.value).trim();
+    if (t.isNotEmpty) out.add('${e.key}: $t');
+  }
+  return out;
+}
+
+List<String> _strList(Object? v) => v is List
+    ? v.map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toList()
+    : (v is String && v.trim().isNotEmpty ? [v.trim()] : const <String>[]);
+
+String _cut(String s, int n) => s.length > n ? s.substring(0, n) : s;
 
 class SearchRankedItem {
   SearchRankedItem({

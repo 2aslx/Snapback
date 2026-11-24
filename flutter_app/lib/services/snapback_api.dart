@@ -119,11 +119,18 @@ class SnapbackApi {
   }
 
   /// 사진 1장 분석. 서버·OpenAI 가 잠깐 바쁘면(429/5xx/시간초과) 조금 기다렸다 최대 2번 다시 시도.
-  Future<Map<String, dynamic>> analyzeImage(String imageDataUrl) async {
+  /// [detail] 'high' 면 서버가 고해상도로 글자까지 정밀하게 읽는다 (큰 이미지와 함께 보낼 때만).
+  Future<Map<String, dynamic>> analyzeImage(
+    String imageDataUrl, {
+    String detail = 'low',
+  }) async {
     const retry = {'rate_limited', 'openai_429', 'openai_500', 'openai_503', 'timeout'};
     for (var attempt = 0; ; attempt++) {
       try {
-        return await _post('/api/analyze', {'image': imageDataUrl});
+        return await _post('/api/analyze', {
+          'image': imageDataUrl,
+          if (detail == 'high') 'detail': 'high',
+        });
       } on ApiException catch (e) {
         if (attempt >= 2 || !retry.contains(e.code)) rethrow;
         await Future<void>.delayed(Duration(seconds: 3 * (attempt + 1)));
