@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -7,6 +9,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/photo_item.dart';
 import '../theme/app_theme.dart';
+import 'photo_image.dart';
 import 'icon_paths.g.dart';
 
 // 이 파일의 위젯은 index.html(2aslx-patch-1) 의 CSS 클래스와 1:1 대응한다.
@@ -60,9 +63,15 @@ class SnapIcon extends StatelessWidget {
 
 /// 누르면 opacity .6 (.btn:active, .chip:active, .row:active …)
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, this.onTap});
+  const Pressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+  });
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<Pressable> createState() => _PressableState();
@@ -80,6 +89,7 @@ class _PressableState extends State<Pressable> {
       onTapCancel: () => setState(() => _down = false),
       onTapUp: (_) => setState(() => _down = false),
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: AnimatedOpacity(
         opacity: _down ? 0.6 : 1,
         duration: const Duration(milliseconds: 150),
@@ -109,7 +119,29 @@ class Bleed extends StatelessWidget {
   );
 }
 
-/// .top — 가운데 제목(17/600) + 왼쪽 ‹ 뒤로 + 오른쪽 보조 텍스트
+/// 한글 줄바꿈을 단어 단위로: Flutter 는 한글을 글자마다 끊어 '친구 / 와'처럼 단어가 쪼개진다.
+/// 단어 안의 글자 사이에 보이지 않는 연결 문자(U+2060)를 넣어 띄어쓰기에서만 줄이 바뀌게 한다.
+/// (화면 표시용 글자에만 쓰고, 입력칸·저장 값에는 쓰지 않는다)
+String keepWords(String text) {
+  if (!RegExp(r'[가-힣]').hasMatch(text)) return text;
+  return text
+      .split(' ')
+      .map((w) => w.length < 2 ? w : w.split('').join('\u2060'))
+      .join(' ');
+}
+
+/// 화면 전환 방향: 상단 뒤로가기 버튼으로 바뀌는 화면이면 true (셸이 '오른쪽으로 밀리는' 효과를 씀)
+class SnapNav {
+  static bool backPending = false;
+
+  static void markBack() {
+    backPending = true;
+    // 화면이 바뀌지 않았으면 이번 프레임이 끝날 때 원래대로
+    WidgetsBinding.instance.addPostFrameCallback((_) => backPending = false);
+  }
+}
+
+/// .top — 가운데 제목(17/600) + 왼쪽 뒤로가기(< 아이콘) + 오른쪽 보조 텍스트
 class SnapbackTopBar extends StatelessWidget {
   const SnapbackTopBar({
     super.key,
@@ -117,12 +149,16 @@ class SnapbackTopBar extends StatelessWidget {
     this.onBack,
     this.trailing,
     this.leadingIcon,
+    this.titleWidget,
   });
 
   final String title;
   final VoidCallback? onBack;
   final Widget? trailing;
   final String? leadingIcon;
+
+  /// 제목 자리에 글자 대신 넣을 위젯 (예: 앨범 이름 바로 편집)
+  final Widget? titleWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -151,40 +187,44 @@ class SnapbackTopBar extends StatelessWidget {
                       const SizedBox(width: 8),
                     ],
                     Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.3,
-                          color: c.ink,
-                        ),
-                      ),
+                      child:
+                          titleWidget ??
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.3,
+                              color: c.ink,
+                            ),
+                          ),
                     ),
                   ],
                 ),
               ),
+              // 뒤로가기: 아이콘 주변까지 넓게 눌리도록 72 × 막대 높이 전체를 터치 영역으로
               if (onBack != null)
                 Positioned(
-                  left: -6,
+                  left: -8,
                   top: 0,
                   bottom: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: onBack,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 0, 12, 4),
-                      child: Center(
-                        child: Text(
-                          '‹',
-                          style: TextStyle(
-                            fontSize: 36,
-                            height: 1,
-                            fontWeight: FontWeight.w300,
-                            color: c.pk,
-                          ),
+                  width: 72,
+                  child: Pressable(
+                    onTap: () {
+                      SnapNav.markBack();
+                      onBack!();
+                    },
+                    child: Align(
+                      alignment: const Alignment(-1, 0.25),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: SnapIcon(
+                          'back',
+                          size: 26,
+                          color: c.pk,
+                          strokeWidth: 2.2,
                         ),
                       ),
                     ),
@@ -214,11 +254,21 @@ class SnapbackTopBar extends StatelessWidget {
   }
 }
 
-/// .lt .large — 큰 제목(34/800) + 원형 버튼(.tbtn)들
+/// .lt .large — 큰 제목(기본 30/700, Inter) + 왼쪽 캐릭터(선택) + 원형 버튼(.tbtn)들
 class LargeTitle extends StatelessWidget {
-  const LargeTitle({super.key, required this.title, this.actions = const []});
+  const LargeTitle({
+    super.key,
+    required this.title,
+    this.actions = const [],
+    this.leading,
+    this.fontSize = 30,
+    this.fontWeight = FontWeight.w700,
+  });
   final String title;
   final List<Widget> actions;
+  final Widget? leading;
+  final double fontSize;
+  final FontWeight fontWeight;
 
   @override
   Widget build(BuildContext context) {
@@ -227,13 +277,14 @@ class LargeTitle extends StatelessWidget {
       padding: const EdgeInsets.only(top: 4, bottom: 10),
       child: Row(
         children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 6)],
           Expanded(
             child: Text(
               title,
               style: TextStyle(
-                fontSize: 34,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.8,
+                fontSize: fontSize,
+                fontWeight: fontWeight,
+                letterSpacing: fontSize > 24 ? -0.8 : -0.3,
                 height: 1.1,
                 color: c.ink,
               ),
@@ -255,14 +306,13 @@ class TitleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
+    // 디자인 B3 — 배경 없는 검은 선 아이콘 (누르는 영역은 40×40)
     return Pressable(
       onTap: onTap,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(color: c.fill, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: SnapIcon(icon, size: 21.85, color: c.pk),
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(child: SnapIcon(icon, size: 26, color: c.ink)),
       ),
     );
   }
@@ -346,7 +396,7 @@ class SnapSub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-    text,
+    keepWords(text),
     textAlign: center ? TextAlign.center : TextAlign.start,
     style: TextStyle(fontSize: 15, height: 1.45, color: context.sc.mute),
   );
@@ -375,7 +425,7 @@ class SnapNote extends StatelessWidget {
               ),
               const TextSpan(text: ' '),
             ],
-            TextSpan(text: text),
+            TextSpan(text: keepWords(text)),
           ],
         ),
         textAlign: TextAlign.center,
@@ -410,35 +460,38 @@ class SnapButton extends StatelessWidget {
       padding: EdgeInsets.only(top: top),
       child: Pressable(
         onTap: onTap ?? () {},
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 50),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: ghost ? c.fill : c.pri,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                SnapIcon(icon!, size: 19.5, color: fg),
-                const SizedBox(width: 4),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.3,
-                    color: fg,
+        child: Opacity(
+          opacity: onTap == null ? 0.45 : 1, // 누를 수 없는 상태는 흐리게
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 50),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: ghost ? c.fill : c.pri,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  SnapIcon(icon!, size: 19.5, color: fg),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                      color: fg,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -460,7 +513,7 @@ class IconBadge extends StatelessWidget {
   final int? gradIndex;
   final double size;
   final double radius;
-  final Uint8List? image;
+  final ImageProvider? image;
 
   @override
   Widget build(BuildContext context) {
@@ -469,13 +522,16 @@ class IconBadge extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: gradIndex == null && image == null ? c.pri : null,
+        color: image != null
+            ? c.card
+            : (gradIndex == null ? c.pri : null),
         gradient: image == null && gradIndex != null
             ? kTileGradients[gradIndex! % 6]
             : null,
         borderRadius: BorderRadius.circular(radius),
+        // 작은 썸네일은 칸에 꽉 차게
         image: image != null
-            ? DecorationImage(image: MemoryImage(image!), fit: BoxFit.cover)
+            ? DecorationImage(image: image!, fit: BoxFit.cover)
             : null,
       ),
       alignment: Alignment.center,
@@ -629,6 +685,8 @@ class SnapChip extends StatelessWidget {
     this.card = false,
     this.icon,
     this.onTap,
+    this.onLongPress,
+    this.accent = false,
   });
 
   final String label;
@@ -637,20 +695,29 @@ class SnapChip extends StatelessWidget {
   final bool card;
   final String? icon;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  /// 선택 시 테라코타(pri) 배경 + 흰 글씨 (앨범 카테고리 필터)
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
-    final fg = dashed ? c.mute : (selected ? c.bg : c.ink);
+    final fg = dashed
+        ? c.mute
+        : selected
+        ? (accent ? Colors.white : c.bg)
+        : c.ink;
     return Pressable(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
         decoration: BoxDecoration(
           color: dashed
               ? null
               : selected
-              ? c.ink
+              ? (accent ? c.pri : c.ink)
               : (card ? c.card : c.fill),
           borderRadius: BorderRadius.circular(99),
           border: dashed
@@ -696,8 +763,11 @@ class SnapSearchBar extends StatelessWidget {
     this.onSubmit,
     this.onChanged,
     this.keyboardType,
+    this.showButton = false,
   });
 
+  /// enabled 가 false(누르면 이동하는 표시용 바)여도 오른쪽 주황 화살표를 보여줌 (홈 검색창)
+  final bool showButton;
   final TextEditingController? controller;
   final FocusNode? focusNode;
   final String hint;
@@ -716,6 +786,8 @@ class SnapSearchBar extends StatelessWidget {
     final field = TextField(
       controller: controller,
       focusNode: focusNode,
+      // 입력칸 밖(화면 다른 곳)을 누르면 키보드를 내린다
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       readOnly: !enabled,
       keyboardType: keyboardType,
       textInputAction: TextInputAction.search,
@@ -730,13 +802,13 @@ class SnapSearchBar extends StatelessWidget {
       ),
     );
     return Container(
-      constraints: const BoxConstraints(minHeight: 40),
-      padding: enabled
-          ? const EdgeInsets.fromLTRB(12, 4, 4, 4)
-          : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: enabled || showButton
+          ? const EdgeInsets.fromLTRB(20, 6, 6, 6)
+          : const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
       decoration: BoxDecoration(
-        color: c.fill,
-        borderRadius: BorderRadius.circular(12),
+        color: c.card,
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Row(
         children: [
@@ -747,15 +819,15 @@ class SnapSearchBar extends StatelessWidget {
           Expanded(
             child: IgnorePointer(ignoring: !enabled, child: field),
           ),
-          if (enabled) ...[
+          if (enabled || showButton) ...[
             const SizedBox(width: 7),
             Pressable(
-              onTap: onSubmit,
+              onTap: enabled ? onSubmit : null,
               child: Opacity(
                 opacity: busy ? 0.5 : 1,
                 child: Container(
-                  width: 32,
-                  height: 32,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: c.pri,
                     shape: BoxShape.circle,
@@ -792,8 +864,11 @@ class PhotoTile extends StatelessWidget {
     this.radius = 11,
     this.iconSize = 30,
     this.label,
+    this.fit = BoxFit.cover,
   });
 
+  /// 썸네일·그리드는 cover(칸에 꽉 차게), 크게 보는 사진은 contain(전체가 보이게)
+  final BoxFit fit;
   final PhotoItem item;
   final VoidCallback? onTap;
   final double? width;
@@ -805,57 +880,77 @@ class PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bytes = decodeDataUrl(item.thumbDataUrl);
     final text =
         label ?? (item.date.length >= 2 ? item.date.substring(2) : item.date);
+    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2;
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(radius),
-          gradient: bytes == null ? kTileGradients[item.id % 6] : null,
-          image: bytes != null
-              ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover)
-              : null,
-        ),
-        child: Stack(
-          children: [
-            if (bytes == null)
-              Center(
-                child: Opacity(
-                  opacity: 0.92,
-                  child: SnapIcon(
-                    item.icon,
-                    size: iconSize,
-                    color: Colors.white,
-                    strokeWidth: 1.5,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, k) {
+          // 칸 크기에 맞는 화질로 불러온다 (iOS 원본 / 웹 1080 미리보기 / 썸네일)
+          final w = width ?? (k.hasBoundedWidth ? k.maxWidth : 120);
+          final h = height ?? (k.hasBoundedHeight ? k.maxHeight : w);
+          final provider = photoImageProvider(
+            item,
+            logicalSize: math.max(w, h),
+            dpr: dpr,
+          );
+          return _tile(provider, text, context.sc.card);
+        },
+      ),
+    );
+  }
+
+  Widget _tile(ImageProvider? provider, String text, Color letterbox) {
+    final bytes = provider;
+    return Container(
+      width: width,
+      height: height,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        // 사진이 없으면 그라데이션. 전체 보기(contain)일 때 남는 곳은 옅은 바탕
+        color: bytes != null ? letterbox : null,
+        gradient: bytes == null ? kTileGradients[item.id % 6] : null,
+        image: bytes != null
+            ? DecorationImage(image: bytes, fit: fit, onError: (_, _) {})
+            : null,
+      ),
+      child: Stack(
+        children: [
+          if (bytes == null)
+            Center(
+              child: Opacity(
+                opacity: 0.92,
+                child: SnapIcon(
+                  item.icon,
+                  size: iconSize,
+                  color: Colors.white,
+                  strokeWidth: 1.5,
                 ),
               ),
-            if (showDate)
-              Positioned(
-                left: 6,
-                bottom: 4,
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                    shadows: [
-                      Shadow(
-                        color: Color(0x77000000),
-                        blurRadius: 3,
-                        offset: Offset(0, 1),
-                      ),
-                    ],
-                  ),
+            ),
+          if (showDate)
+            Positioned(
+              left: 6,
+              bottom: 4,
+              child: Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      color: Color(0x77000000),
+                      blurRadius: 3,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -863,30 +958,159 @@ class PhotoTile extends StatelessWidget {
 
 /// .grid — 3열, gap 2, 가장자리까지 (모서리 없음, 날짜 숨김)
 class PhotoGrid extends StatelessWidget {
-  const PhotoGrid({super.key, required this.items, this.onTap});
+  const PhotoGrid({super.key, required this.items, this.onTap, this.selected});
   final List<PhotoItem> items;
   final void Function(PhotoItem)? onTap;
 
+  /// 선택 모드: null 이 아니면 각 타일에 선택 표시 (선택된 사진은 주황 테두리 + 체크)
+  final Set<int>? selected;
+
+  // 디자인 B3 — 둥근 모서리 타일 3열, 사이 간격 6
   @override
-  Widget build(BuildContext context) => Bleed(
-    child: GridView.builder(
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    return GridView.builder(
       shrinkWrap: true,
       padding: EdgeInsets.zero,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        mainAxisSpacing: 2,
-        crossAxisSpacing: 2,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
       ),
       itemCount: items.length,
-      itemBuilder: (_, i) => PhotoTile(
-        item: items[i],
-        radius: 0,
-        showDate: false,
-        onTap: onTap == null ? null : () => onTap!(items[i]),
+      itemBuilder: (_, i) {
+        final tile = PhotoTile(
+          item: items[i],
+          radius: 16,
+          showDate: false,
+          onTap: onTap == null ? null : () => onTap!(items[i]),
+        );
+        final sel = selected;
+        if (sel == null) return tile;
+        final on = sel.contains(items[i].id);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Opacity(opacity: on ? 0.6 : 1, child: tile),
+            if (on)
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: c.pri, width: 3),
+                  ),
+                ),
+              ),
+            Positioned(
+              top: 7,
+              right: 7,
+              child: IgnorePointer(
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: on ? c.pri : const Color(0x99FFFFFF),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  alignment: Alignment.center,
+                  child: on
+                      ? const SnapIcon(
+                          'check',
+                          size: 13,
+                          color: Colors.white,
+                          strokeWidth: 2.6,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 확인 팝업 (예: 삭제). 확인을 누르면 true.
+Future<bool> showSnapConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmLabel = '삭제',
+  bool destructive = true,
+}) async {
+  final c = context.sc;
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierColor: const Color(0x66000000),
+    builder: (ctx) => Dialog(
+      backgroundColor: c.bg,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: c.ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, height: 1.45, color: c.mute),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: SnapButton(
+                    label: '취소',
+                    ghost: true,
+                    top: 0,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Pressable(
+                    onTap: () => Navigator.of(ctx).pop(true),
+                    child: Container(
+                      height: 50,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: destructive ? const Color(0xFFD93A2B) : c.pri,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     ),
   );
+  return ok == true;
 }
 
 /// .hs — 가로 스크롤 타일 (88, r10, gap 6)
@@ -1124,7 +1348,9 @@ class SnapEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.sc;
-    return Padding(
+    // 부모가 왼쪽 정렬이어도 항상 가로 전체를 차지해 가운데 정렬 (.empty)
+    return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 40),
       child: Column(
         children: [
@@ -1226,4 +1452,381 @@ class _StripePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _StripePainter old) => old.a != a || old.b != b;
+}
+
+/// 앨범 카드 — 대표사진 1장 + 뒤에 사진이 겹쳐 쌓인 모양 + 이름 + "사진 N장".
+/// 일반 사진 썸네일과 구분되도록 뒤쪽 두 장이 위로 살짝 보인다.
+class AlbumCard extends StatelessWidget {
+  const AlbumCard({
+    super.key,
+    required this.cover,
+    required this.title,
+    required this.count,
+    this.onTap,
+    this.badge,
+  });
+
+  final PhotoItem cover;
+  final String title;
+  final int count;
+  final VoidCallback? onTap;
+
+  /// 이름 옆 작은 표시 (예: 카테고리)
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    Widget layer(double inset, double top, double t) => Positioned(
+      left: inset,
+      right: inset,
+      top: top,
+      bottom: 14 - top,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Color.lerp(c.pri, c.bg, t),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.bg, width: 1.5),
+        ),
+      ),
+    );
+    return Pressable(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1 / 1.06,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                layer(16, 0, 0.72),
+                layer(8, 7, 0.5),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 14,
+                  bottom: 0,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: c.bg, width: 1.5),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A000000),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: PhotoTile(item: cover, radius: 11, showDate: false),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2,
+              color: c.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            badge == null ? '사진 $count장' : '사진 $count장 · $badge',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: c.mute),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 앨범 카드 2열 배치 (홀수 개면 마지막 칸은 비움 → 카드 크기 일정)
+class AlbumCardGrid extends StatelessWidget {
+  const AlbumCardGrid({super.key, required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (var i = 0; i < children.length; i += 2)
+        Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : 18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: children[i]),
+              const SizedBox(width: 14),
+              Expanded(
+                child: i + 1 < children.length
+                    ? children[i + 1]
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+/// 오른쪽 스크롤 바 + 날짜 말풍선 (사진 보관함 그리드용).
+/// 손잡이를 끌거나 막대를 눌러 원하는 위치로 바로 이동하고, 스크롤하는 동안 [labelAt] 이 준
+/// 날짜(그 위치에 보이는 사진의 촬영 날짜)를 손잡이 옆에 띄운다. 멈추면 잠시 뒤 말풍선만 사라진다.
+class DateScrollbar extends StatefulWidget {
+  const DateScrollbar({
+    super.key,
+    required this.controller,
+    required this.labelAt,
+  });
+  final ScrollController controller;
+  final String Function(double offset) labelAt;
+
+  @override
+  State<DateScrollbar> createState() => _DateScrollbarState();
+}
+
+class _DateScrollbarState extends State<DateScrollbar> {
+  static const _thumbH = 46.0;
+  bool _dragging = false;
+  bool _showLabel = true; // 처음 열었을 때도 잠깐 보여줌
+  Timer? _hide;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    _scheduleHide();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    setState(() => _showLabel = true);
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hide?.cancel();
+    _hide = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted && !_dragging) setState(() => _showLabel = false);
+    });
+  }
+
+  void _jumpTo(double dy, double trackH) {
+    final p = widget.controller.position;
+    final frac = ((dy - _thumbH / 2) / (trackH - _thumbH)).clamp(0.0, 1.0);
+    widget.controller.jumpTo(frac * p.maxScrollExtent);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    return LayoutBuilder(
+      builder: (context, k) {
+        final ctl = widget.controller;
+        if (!ctl.hasClients || !ctl.position.hasContentDimensions) {
+          // 첫 프레임: 크기를 안 뒤 다시 그림
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+          return const SizedBox.shrink();
+        }
+        final p = ctl.position;
+        if (p.maxScrollExtent <= 0) return const SizedBox.shrink();
+        final h = k.maxHeight;
+        final frac = (p.pixels / p.maxScrollExtent).clamp(0.0, 1.0);
+        final top = (h - _thumbH) * frac;
+        return Stack(
+          children: [
+            // 누르거나 끌 수 있는 막대 영역 (오른쪽 28)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: 28,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: (d) {
+                  setState(() => _dragging = true);
+                  _jumpTo(d.localPosition.dy, h);
+                },
+                onVerticalDragUpdate: (d) => _jumpTo(d.localPosition.dy, h),
+                onVerticalDragEnd: (_) {
+                  setState(() => _dragging = false);
+                  _scheduleHide();
+                },
+                onTapDown: (d) => _jumpTo(d.localPosition.dy, h),
+              ),
+            ),
+            // 손잡이
+            Positioned(
+              right: 3,
+              top: top,
+              child: IgnorePointer(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: _dragging ? 8 : 6,
+                  height: _thumbH,
+                  decoration: BoxDecoration(
+                    color: _dragging ? c.pri : c.ink.withValues(alpha: 0.38),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+            // 날짜 말풍선
+            Positioned(
+              right: 18,
+              top: top + _thumbH / 2 - 16,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _showLabel || _dragging ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: c.bg,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x26000000),
+                          blurRadius: 10,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      widget.labelAt(p.pixels),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: c.ink,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 크게 보는 사진 (검색된 사진 · 사진 상세 · 나의 기록): 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 보인다.
+/// 비율은 iOS 원본 크기(assetW/H)로, 없으면(웹 등) 이미지를 불러와 실제 크기로 정한다.
+class FullWidthPhoto extends StatefulWidget {
+  const FullWidthPhoto({
+    super.key,
+    required this.item,
+    this.radius = 18,
+    this.fallbackHeight = 280,
+    this.maxHeight = 560,
+    this.overlay = const [],
+  });
+
+  final PhotoItem item;
+  final double radius;
+  final double fallbackHeight;
+  final double maxHeight;
+  final List<Widget> overlay;
+
+  @override
+  State<FullWidthPhoto> createState() => _FullWidthPhotoState();
+}
+
+class _FullWidthPhotoState extends State<FullWidthPhoto> {
+  double? _aspect; // 가로 / 세로
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant FullWidthPhoto old) {
+    super.didUpdateWidget(old);
+    if (old.item.id != widget.item.id) {
+      _aspect = null;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final d = widget.item;
+    if ((d.assetW ?? 0) > 0 && (d.assetH ?? 0) > 0) {
+      _aspect = d.assetW! / d.assetH!;
+      return;
+    }
+    final provider = photoImageProvider(d, logicalSize: 200);
+    if (provider == null) return;
+    _stopListening();
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener((info, _) {
+      final a = info.image.width / info.image.height;
+      if (mounted && a.isFinite && a > 0) setState(() => _aspect = a);
+    }, onError: (_, _) {});
+    stream.addListener(listener);
+    _stream = stream;
+    _listener = listener;
+  }
+
+  void _stopListening() {
+    if (_stream != null && _listener != null) _stream!.removeListener(_listener!);
+  }
+
+  @override
+  void dispose() {
+    _stopListening();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, k) {
+      final w = k.hasBoundedWidth ? k.maxWidth : 360.0;
+      final h = _aspect == null
+          ? widget.fallbackHeight
+          : (w / _aspect!).clamp(140.0, widget.maxHeight);
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: h,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PhotoTile(
+              item: widget.item,
+              radius: widget.radius,
+              showDate: false,
+              iconSize: 60,
+              fit: BoxFit.contain, // 아주 긴 사진도 잘리지 않게
+            ),
+            ...widget.overlay,
+          ],
+        ),
+      );
+    },
+  );
 }

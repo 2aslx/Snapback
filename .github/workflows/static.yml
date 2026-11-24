@@ -1,9 +1,10 @@
 # Build the Flutter Web app and deploy it to GitHub Pages
 name: Deploy Flutter Web to Pages
 
+# 배포는 Vercel 이 main 푸시 때 자동으로 한다. 이 레포는 GitHub Pages 가 꺼져 있어
+# push 때마다 돌면 'Get Pages site failed' 로 실패하므로, 필요할 때 Actions 탭에서 직접 실행만 한다.
+# (Pages 를 쓰려면: Settings → Pages → Source 를 'GitHub Actions' 로 바꾼 뒤 실행)
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
 
 permissions:

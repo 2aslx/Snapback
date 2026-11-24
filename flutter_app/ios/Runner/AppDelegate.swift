@@ -12,5 +12,9 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // 사진 분석 진행을 잠금화면·알림 센터에 띄우는 Live Activity 연결
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "SnapbackLiveActivity") {
+      LiveActivityBridge.shared.register(messenger: registrar.messenger())
+    }
   }
 }

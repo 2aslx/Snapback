@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
 import '../models/photo_item.dart';
 
 class ApiException implements Exception {
@@ -48,12 +50,12 @@ class SearchResponse {
 
 /// 기본 API 서버 주소.
 /// 웹은 같은 도메인('')을 쓰고, iOS 는 빌드 시 지정한 주소를 쓴다.
-/// 예: flutter run -d ios --dart-define=SNAPBACK_API_URL=https://snapback.vercel.app
+/// 예: flutter run -d ios --dart-define=SNAPBACK_API_URL=http://localhost:3000 (로컬 서버로 테스트할 때)
 const String kDefaultApiUrl = kIsWeb
     ? String.fromEnvironment('SNAPBACK_API_URL')
     : String.fromEnvironment(
         'SNAPBACK_API_URL',
-        defaultValue: 'http://localhost:3000',
+        defaultValue: 'https://snapback-virid.vercel.app',
       );
 
 class SnapbackApi {
@@ -108,34 +110,126 @@ class SnapbackApi {
     } catch (_) {}
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      final code = data['error']?.toString() ??
+      final code =
+          data['error']?.toString() ??
           (res.statusCode == 429 ? 'rate_limited' : 'http_${res.statusCode}');
       throw ApiException(code);
     }
     return data;
   }
 
-  Future<Map<String, dynamic>> analyzeImage(String imageDataUrl) {
-    return _post('/api/analyze', {'image': imageDataUrl});
+  /// 사진 1장 분석. 서버·OpenAI 가 잠깐 바쁘면(429/5xx/시간초과) 조금 기다렸다 최대 2번 다시 시도.
+  /// [detail] 'high' 면 서버가 고해상도로 글자까지 정밀하게 읽는다 (큰 이미지와 함께 보낼 때만).
+  Future<Map<String, dynamic>> analyzeImage(
+    String imageDataUrl, {
+    String detail = 'low',
+  }) async {
+    const retry = {'rate_limited', 'openai_429', 'openai_500', 'openai_503', 'timeout'};
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _post('/api/analyze', {
+          'image': imageDataUrl,
+          if (detail == 'high') 'detail': 'high',
+        });
+      } on ApiException catch (e) {
+        if (attempt >= 2 || !retry.contains(e.code)) rethrow;
+        await Future<void>.delayed(Duration(seconds: 3 * (attempt + 1)));
+      }
+    }
   }
 
+  /// AI 로 보낼 사진 목록: 썸네일 없이, 촬영 위치는 좌표 대신 시·구·동 주소(addr)로
+  static List<Map<String, dynamic>> aiDb(
+    List<PhotoItem> db,
+    Map<int, String> addr,
+  ) => [
+    for (final d in db)
+      {
+        ...d.toJson(includeThumb: false)..remove('gps'),
+        'addr': ?addr[d.id],
+      },
+  ];
+
+  /// [wantQuestion] — '질문 한 번 더하기': 서버가 후보를 가를 질문을 반드시 하나 만든다.
   Future<SearchResponse> searchMemory(
     List<PhotoItem> db,
-    List<String> hist,
-  ) async {
+    List<String> hist, {
+    bool wantQuestion = false,
+    Map<int, String> addr = const {},
+  }) async {
     final data = await _post('/api/search', {
-      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+      'db': aiDb(db, addr),
       'hist': hist,
+      if (wantQuestion) 'wantQuestion': true,
     });
     final ranked = (data['ranked'] as List? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(SearchRankedItem.fromJson)
         .toList();
     final qRaw = data['question'];
-    final question = qRaw is Map<String, dynamic> &&
+    final question =
+        qRaw is Map<String, dynamic> &&
             (qRaw['options'] as List?)?.isNotEmpty == true
         ? SearchQuestion.fromJson(qRaw)
         : null;
     return SearchResponse(ranked: ranked, question: question);
+  }
+
+  /// AI 대화형 앨범: 자연어 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null, 못 찾은 이유)
+  Future<(String, List<int>, String?, String)> composeAlbum(
+    List<PhotoItem> db,
+    String request, {
+    List<Map<String, String>> categories = const [],
+    Map<int, String> addr = const {},
+  }) async {
+    final data = await _post('/api/album', {
+      'db': aiDb(db, addr),
+      'request': request,
+      if (categories.isNotEmpty) 'categories': categories,
+    });
+    final ids = (data['ids'] as List? ?? const [])
+        .whereType<num>()
+        .map((e) => e.toInt())
+        .toList();
+    final cat = data['category'];
+    return (
+      (data['title'] ?? '').toString(),
+      ids,
+      cat is String && cat.isNotEmpty ? cat : null,
+      (data['reason'] ?? '').toString(),
+    );
+  }
+
+  /// GPS 좌표 → 시·구·동 주소 (서버가 구글 지도 또는 OpenStreetMap 으로 변환).
+  Future<String?> placeName(double lat, double lng) async {
+    final data = await _post('/api/place', {'lat': lat, 'lng': lng});
+    final n = data['name'];
+    return n is String && n.trim().isNotEmpty ? n.trim() : null;
+  }
+
+  /// '기록으로 남기기' 초안. [image] 가 있으면 AI 가 사진 속 글자까지 읽는다.
+  Future<Map<String, dynamic>> draftRecord(
+    PhotoItem photo, {
+    String? image,
+    String? location,
+  }) =>
+      _post('/api/record', {
+        'photo': photo.toJson(includeThumb: false),
+        'image': ?image,
+        if (location != null && location.isNotEmpty) 'location': location,
+      });
+
+  /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)
+  Future<List<String>> suggestAlbums(
+    List<PhotoItem> db, {
+    Map<int, String> addr = const {},
+  }) async {
+    final data = await _post('/api/suggest', {
+      'db': aiDb(db, addr),
+    });
+    return ((data['suggestions'] as List?) ?? const [])
+        .map((e) => '$e'.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 }

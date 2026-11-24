@@ -7,6 +7,9 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/snap_runner.dart';
 
+import 'package:photo_manager/photo_manager.dart';
+import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+
 // index.html 의 ① 시작 안내 ~ ② 분석 진행 (섹션 0~4)
 
 /// ① 시작 안내
@@ -44,7 +47,13 @@ class Screen0Welcome extends StatelessWidget {
             ),
           ],
         ),
-        SnapButton(label: '시작하기', onTap: () => state.go(1)),
+        SnapButton(
+          label: '시작하기',
+          onTap: () {
+            state.scopeReturn = 0; // 처음 설정: 뒤로 → 시작 안내
+            state.go(1);
+          },
+        ),
       ],
     );
   }
@@ -58,6 +67,8 @@ class Screen1Scope extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final c = context.sc;
+    s.ensureLibraryOnce(); // iOS: 사진 보관함 권한 · 전체 사진 수 · 앨범 목록
     SnapRow opt(int i, String icon, String title, String sub, [int? go]) =>
         SnapRow(
           leading: IconBadge(icon),
@@ -72,17 +83,74 @@ class Screen1Scope extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(0)),
+        SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(s.scopeReturn)),
         const SnapH2('어떤 사진을\n허용할까요?'),
         SnapGroup(
           children: [
-            opt(0, 'image', '전체 사진', '3,420장'),
-            opt(1, 'folder', '앨범 선택', '원하는 앨범만'),
+            opt(
+              0,
+              'image',
+              '전체 사진',
+              s.useLibrary ? '${s.libraryCount}장' : '3,420장',
+            ),
+            opt(
+              1,
+              'folder',
+              '앨범 선택',
+              s.useLibrary && s.selectedAlbumIds.isNotEmpty
+                  ? '앨범 ${s.selectedAlbumIds.length}개 · ${s.selectedAlbumPhotoCount}장'
+                  : '원하는 앨범만',
+            ),
             opt(2, 'select', '사진 직접 고르기', '눌러서 하나씩 선택', 2),
             opt(3, 'calendar', '기간 지정', '2022.01 ~ 지금'),
           ],
         ),
-        SnapButton(label: '다음', onTap: () => s.go(3)),
+        // iOS: '앨범 선택'이면 기기 사진 보관함의 실제 앨범 목록 (여러 개 선택)
+        if (s.useLibrary && s.scopeSelection == 1) ...[
+          const SnapH3('분석할 앨범을 골라 주세요 · 여러 개 선택 가능', small: true),
+          if (s.libraryAlbumsLoading && s.libraryAlbums.isEmpty)
+            const SnapNote('앨범을 불러오는 중…', top: 0)
+          else if (s.libraryAlbums.isEmpty)
+            const SnapNote('사진이 들어 있는 앨범이 없어요', top: 0)
+          else
+            SnapGroup(
+              top: 0,
+              separatorInset: 58,
+              children: [
+                for (final a in s.libraryAlbums)
+                  SnapRow(
+                    leading: IconBadge(
+                      'folder',
+                      size: 40,
+                      radius: 8,
+                      image: a.cover == null
+                          ? null
+                          : AssetEntityImageProvider(
+                              a.cover!,
+                              isOriginal: false,
+                              thumbnailSize: const ThumbnailSize.square(160),
+                            ),
+                    ),
+                    title: a.path.name,
+                    subtitle: '${a.count}장',
+                    checked: s.selectedAlbumIds.contains(a.path.id),
+                    onTap: () => s.toggleLibraryAlbum(a.path.id),
+                  ),
+              ],
+            ),
+        ],
+        if (s.libraryDenied) ...[
+          const SnapWarn('사진 보관함 접근이 허용되지 않았어요. 설정에서 사진 접근을 허용해 주세요.'),
+          SnapButton(label: '설정 열기', ghost: true, onTap: s.openLibrarySettings),
+        ],
+        if (s.useLibrary &&
+            s.libraryPermission?.isAuth == false &&
+            !s.libraryDenied)
+          SnapNote('일부 사진만 허용됨 · 허용한 사진 안에서 분석해요', color: c.mute),
+        if (s.useLibrary && s.scopeSelection == 1 && s.selectedAlbumIds.isEmpty)
+          const SnapButton(label: '앨범을 하나 이상 골라 주세요', onTap: null)
+        else
+          SnapButton(label: '다음', onTap: () => s.go(3)),
       ],
     );
   }
@@ -97,6 +165,7 @@ class Screen2PickPhotos extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = state;
     final c = context.sc;
+    if (s.useLibrary) return _LibraryPicker(state: s);
     final n = s.pickQueue.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,9 +182,7 @@ class Screen2PickPhotos extends StatelessWidget {
           top: 14,
           onTap: () => s.pickPhotosFromGallery(),
         ),
-        SnapNote(
-          n == 0 ? '선택한 사진: 0장' : '선택한 사진: $n장 (이미 분석한 사진은 건너뛰어요)',
-        ),
+        SnapNote(n == 0 ? '선택한 사진: 0장' : '선택한 사진: $n장 (이미 분석한 사진은 건너뛰어요)'),
         SnapButton(label: '다음', onTap: () => s.go(3)),
       ],
     );
@@ -130,16 +197,23 @@ class Screen3Order extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final c = context.sc;
+    // 이미 '지정 기간 우선'이 골라져 있으면 연도 목록을 불러 둔다
+    if (s.orderSelection == 2 && s.availableYears.isEmpty && !s.yearsLoading) {
+      Future.microtask(s.loadAvailableYears);
+    }
     SnapRow opt(int i, String icon, String title, String sub) => SnapRow(
-          leading: IconBadge(icon),
-          title: title,
-          subtitle: sub,
-          checked: s.orderSelection == i,
-          onTap: () {
-            s.orderSelection = i;
-            s.touch();
-          },
-        );
+      leading: IconBadge(icon),
+      title: title,
+      subtitle: sub,
+      checked: s.orderSelection == i,
+      onTap: () {
+        s.orderSelection = i;
+        s.touch();
+        if (i == 2) s.loadAvailableYears();
+      },
+    );
+    final showYears = s.orderSelection == 2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -149,35 +223,71 @@ class Screen3Order extends StatelessWidget {
         SnapGroup(
           children: [
             opt(0, 'sprout', '최근 사진부터', '요즘 찍은 사진을 먼저'),
-            opt(1, 'history', '오래된 사진부터', '2022년부터 차근차근'),
-            opt(2, 'target', '지정 기간 우선', '고른 기간을 먼저 분석'),
+            opt(1, 'history', '오래된 사진부터', '가장 오래된 사진부터 차근차근'),
+            opt(2, 'target', '지정 기간 우선', '고른 연도를 먼저, 나머지는 오래된 순으로'),
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final y in const ['2026', '2025', '2024', '2023', '2022'])
-                SnapChip(
-                  label: y,
-                  selected: s.priorityYear == y,
-                  onTap: () {
-                    s.priorityYear = y;
-                    s.touch();
-                  },
+        // '지정 기간 우선'을 골랐을 때만 연도가 스르륵 펼쳐진다
+        AnimatedSize(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: !showYears
+              ? const SizedBox(width: double.infinity)
+              : AnimatedOpacity(
+                  opacity: 1,
+                  duration: const Duration(milliseconds: 260),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '먼저 분석할 연도',
+                          style: TextStyle(fontSize: 13, color: c.mute),
+                        ),
+                        const SizedBox(height: 8),
+                        if (s.yearsLoading && s.availableYears.isEmpty)
+                          const SnapNote('사진의 연도를 확인하는 중…', top: 0)
+                        else if (s.availableYears.isEmpty)
+                          const SnapNote('고른 사진에서 연도를 찾지 못했어요', top: 0)
+                        else
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final y in s.availableYears)
+                                SnapChip(
+                                  label: y,
+                                  accent: true,
+                                  selected: s.priorityYear == y,
+                                  onTap: () {
+                                    s.priorityYear = y;
+                                    s.touch();
+                                  },
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-            ],
-          ),
         ),
         SnapButton(
           label: '분석 시작',
-          onTap: () {
-            s.go(4);
+          onTap: () async {
+            // iOS: 접근 범위 + 분석 순서 기준으로 사진 보관함에서 대기열을 만든다
+            if (s.useLibrary) {
+              await s.queueFromLibrary();
+              if (s.libraryDenied) return;
+            }
+            // 전체 화면 대신 홈으로 — 진행 상황은 하단 진행 바에서 확인
+            s.go(5);
             s.startAnalysis();
           },
         ),
+        if (s.libraryDenied) const SnapWarn('사진 보관함 접근이 허용되지 않아 분석할 수 없어요.'),
+        if (s.useLibrary) const SnapNote('한 번에 최대 300장까지 분석해요'),
       ],
     );
   }
@@ -186,15 +296,30 @@ class Screen3Order extends StatelessWidget {
 /// 분석 진행 공통 계산 (진행 화면 · 미니 카드가 함께 사용)
 class AnalysisView {
   AnalysisView(SnapbackState s)
-      : tot = s.analysisTotal,
-        dn = s.analysisDone,
-        paused = s.analysisPaused,
-        done = s.analysisFinished && s.analysisTotal > 0;
+    : tot = s.analysisTotal,
+      dn = s.analysisDone,
+      paused = s.analysisPaused,
+      done = s.analysisFinished && s.analysisTotal > 0,
+      relabel = false;
+
+  /// 하단 진행 카드용: 설정의 '사진 다시 분석하기'가 돌고 있으면 그 진행 상황을 보여준다
+  factory AnalysisView.mini(SnapbackState s) =>
+      s.relabelActiveForProgress ? AnalysisView._relabel(s) : AnalysisView(s);
+
+  AnalysisView._relabel(SnapbackState s)
+    : tot = s.relabelTotal,
+      dn = s.relabelDone,
+      paused = false,
+      done = s.relabelFinished,
+      relabel = true;
 
   final int tot;
   final int dn;
   final bool paused;
   final bool done;
+
+  /// 다시 분석(재라벨링) 진행인지
+  final bool relabel;
 
   int get pct => tot > 0 ? (dn / tot * 100).round().clamp(0, 100) : 0;
   double get p => pct / 100;
@@ -230,8 +355,8 @@ class Screen4Progress extends StatelessWidget {
     final status = v.tot == 0
         ? '대기 중'
         : v.done
-            ? '완료!'
-            : (v.paused ? '일시정지' : '분석 중');
+        ? '완료!'
+        : (v.paused ? '일시정지' : '분석 중');
     final years = s.yearProgress();
     final keys = years.keys.toList()..sort((a, b) => b.compareTo(a));
 
@@ -252,8 +377,10 @@ class Screen4Progress extends StatelessWidget {
                   child: Container(
                     width: 134,
                     height: 134,
-                    decoration:
-                        BoxDecoration(color: c.bg, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: c.bg,
+                      shape: BoxShape.circle,
+                    ),
                     alignment: Alignment.center,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -331,10 +458,7 @@ class Screen4Progress extends StatelessWidget {
         ),
         SnapSub(_year(s, v), center: true),
         StatBoxes(
-          items: [
-            ('${v.dn}', ' 완료 / ${v.tot}'),
-            (_eta(s, v), '남은 시간'),
-          ],
+          items: [('${v.dn}', ' 완료 / ${v.tot}'), (_eta(s, v), '남은 시간')],
         ),
         const SnapH3('시기별 진행'),
         if (keys.isEmpty)
@@ -354,9 +478,7 @@ class Screen4Progress extends StatelessWidget {
                 ],
               ),
             ),
-            SnapBar(
-              value: years[y]![1] == 0 ? 0 : years[y]![0] / years[y]![1],
-            ),
+            SnapBar(value: years[y]![1] == 0 ? 0 : years[y]![0] / years[y]![1]),
           ],
         const SnapH3('잠금화면에서도 보여요'),
         Container(
@@ -408,7 +530,67 @@ class Screen4Progress extends StatelessWidget {
         ),
         SnapButton(label: '분석된 사진 먼저 보기', onTap: () => s.go(5)),
         const SnapNote('중단돼도 완료한 지점부터 이어서 분석해요 · 잠금화면에서 진행률 확인'),
+        // 맨 아래: 분석 취소 (실수 방지로 두 번 눌러야 함)
+        if (!v.done && v.tot > 0) _CancelAnalysisButton(state: s),
       ],
+    );
+  }
+}
+
+class _CancelAnalysisButton extends StatefulWidget {
+  const _CancelAnalysisButton({required this.state});
+  final SnapbackState state;
+
+  @override
+  State<_CancelAnalysisButton> createState() => _CancelAnalysisButtonState();
+}
+
+class _CancelAnalysisButtonState extends State<_CancelAnalysisButton> {
+  bool _confirm = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    final left = widget.state.analysisTotal - widget.state.analysisDone;
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(
+        children: [
+          Pressable(
+            onTap: () {
+              if (_confirm) {
+                widget.state.cancelAnalysis();
+              } else {
+                setState(() => _confirm = true);
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 50),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _confirm ? const Color(0xFFD93A2B) : null,
+                borderRadius: BorderRadius.circular(14),
+                border: _confirm ? null : Border.all(color: const Color(0xFFD93A2B)),
+              ),
+              child: Text(
+                _confirm ? '한 번 더 누르면 분석이 취소돼요' : '분석 취소',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: _confirm ? Colors.white : const Color(0xFFD93A2B),
+                ),
+              ),
+            ),
+          ),
+          SnapNote(
+            _confirm
+                ? '남은 $left장은 분석하지 않아요 · 이미 분석한 사진은 그대로 남아요'
+                : '이미 분석한 사진은 지워지지 않아요',
+            color: c.mute,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -437,4 +619,176 @@ class _RingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RingPainter old) =>
       old.p != p || old.color != color || old.track != track;
+}
+
+/// iOS ②′ 사진 직접 고르기 — 사진 보관함 그리드에서 눌러서 선택 (.ph.sel)
+class _LibraryPicker extends StatefulWidget {
+  const _LibraryPicker({required this.state});
+  final SnapbackState state;
+
+  @override
+  State<_LibraryPicker> createState() => _LibraryPickerState();
+}
+
+class _LibraryPickerState extends State<_LibraryPicker> {
+  final _scroll = ScrollController();
+  static const _cols = 3;
+  static const _gap = 4.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_maybeLoadMore);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// 끝에 가까워지면 다음 사진 묶음을 불러온다 ('더 보기' 대신)
+  void _maybeLoadMore() {
+    final s = widget.state;
+    if (!_scroll.hasClients || !s.pickerHasMore || s.pickerLoading) return;
+    final p = _scroll.position;
+    if (p.pixels > p.maxScrollExtent - 600) s.loadPickerAssets(more: true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    if (s.pickerAssets.isEmpty && !s.pickerLoading && !s.libraryDenied) {
+      Future.microtask(s.loadPickerAssets);
+    }
+    final n = s.pickedAssetIds.length;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final top = SnapbackTopBar(
+      title: '사진 선택',
+      onBack: () => s.go(1),
+      trailing: Text('$n장', style: TextStyle(fontSize: 12, color: c.pk)),
+    );
+    if (s.libraryDenied) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          top,
+          const SnapWarn('사진 보관함 접근이 허용되지 않았어요.'),
+          SnapButton(label: '설정 열기', ghost: true, onTap: s.openLibrarySettings),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        top,
+        const Padding(
+          padding: EdgeInsets.only(top: 6, bottom: 10),
+          child: SnapSub('분석할 사진을 눌러서 고르세요.'),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, k) {
+              // 한 줄 높이 (정사각형 타일 + 간격) → 스크롤 위치에서 보고 있는 사진 찾기
+              final row = (k.maxWidth - _gap * (_cols - 1)) / _cols + _gap;
+              return Stack(
+                children: [
+                  GridView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.only(bottom: 12),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _cols,
+                          mainAxisSpacing: _gap,
+                          crossAxisSpacing: _gap,
+                        ),
+                    itemCount: s.pickerAssets.length,
+                    itemBuilder: (_, i) => _tile(s, c, s.pickerAssets[i], dpr),
+                  ),
+                  if (s.pickerAssets.isNotEmpty)
+                    Positioned.fill(
+                      child: DateScrollbar(
+                        controller: _scroll,
+                        labelAt: (offset) {
+                          final i = ((offset / row).floor() * _cols).clamp(
+                            0,
+                            s.pickerAssets.length - 1,
+                          );
+                          final d = s.pickerAssets[i].createDateTime;
+                          return '${d.year}년 ${d.month}월 ${d.day}일';
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        if (s.pickerLoading) const SnapNote('사진을 불러오는 중…', top: 4),
+        SnapButton(
+          label: n == 0 ? '사진을 골라 주세요' : '선택 완료 ($n장)',
+          top: 10,
+          onTap: n == 0 ? null : s.confirmPickedAssets,
+        ),
+      ],
+    );
+  }
+
+  Widget _tile(SnapbackState s, SnapbackColors c, AssetEntity a, double dpr) {
+    final on = s.pickedAssetIds.contains(a.id);
+    return GestureDetector(
+      onTap: () => s.togglePickAsset(a.id),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: ColoredBox(
+              color: c.card,
+              child: Image(
+                image: AssetEntityImageProvider(
+                  a,
+                  isOriginal: false,
+                  thumbnailSize: ThumbnailSize.square((130 * dpr).round()),
+                ),
+                fit: BoxFit.cover, // 고르기 썸네일은 칸에 꽉 차게
+                width: double.infinity,
+                height: double.infinity,
+                errorBuilder: (_, _, _) => ColoredBox(color: c.fill),
+              ),
+            ),
+          ),
+          if (on)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: c.pri, width: 3),
+              ),
+            ),
+          Positioned(
+            top: 4,
+            right: 5,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: on ? c.pri : const Color(0x99FFFFFF),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: on
+                  ? const SnapIcon(
+                      'check',
+                      size: 12,
+                      color: Colors.white,
+                      strokeWidth: 2.6,
+                    )
+                  : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

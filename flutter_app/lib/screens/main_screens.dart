@@ -1,10 +1,16 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:material_ui/material_ui.dart';
 
-import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/snap_runner.dart';
+import '../widgets/photo_image.dart';
+import '../widgets/map_popup.dart';
+import '../widgets/share_photo.dart';
+import 'record_screens.dart';
 
 // index.html(2aslx-patch-1) 의 섹션 5~15 + Flutter 추가 화면(16 앨범 상세).
 
@@ -20,19 +26,36 @@ class Screen5Home extends StatefulWidget {
 class _Screen5HomeState extends State<Screen5Home>
     with SingleTickerProviderStateMixin {
   final _searchBoxKey = GlobalKey();
+  bool _showAll = false; // '모두 보기' — 월별 전체 사진
+  bool _editing = false; // '편집' — 사진을 골라 앱에서 지우기
+  final Set<int> _sel = {};
+
+  void _tapPhoto(SnapbackState s, PhotoItem d) {
+    if (!_editing) return s.openMemory(d.id);
+    setState(() => _sel.contains(d.id) ? _sel.remove(d.id) : _sel.add(d.id));
+  }
+
+  Future<void> _deleteSelected(SnapbackState s) async {
+    final n = _sel.length;
+    final ok = await showSnapConfirm(
+      context,
+      title: '사진 $n장을 지울까요?',
+      message: 'Snapback 에서만 지워져요.\n사진 앱의 원본 사진은 그대로 남아요.\n지운 사진은 다시 분석하지 않아요.',
+    );
+    if (!ok || !mounted) return;
+    s.removePhotos({..._sel});
+    setState(() {
+      _sel.clear();
+      _editing = false;
+    });
+  }
+
   // 검색에서 뒤로 왔을 때: 검색창은 이미 제자리, 나머지 내용만 페이드 인
   late final AnimationController _reveal = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 260),
     value: 1,
   );
-
-  static const _sugg = [
-    ('비 오는 날 카페', '비 오는 날 카페에서 먹은 디저트'),
-    ('노을 진 강가', '노을 질 때 강가'),
-    ('친구랑 저녁', '친구들이랑 저녁 먹은 날'),
-    ('여행지의 꽃', '여행 가서 찍은 꽃'),
-  ];
 
   @override
   void initState() {
@@ -48,7 +71,7 @@ class _Screen5HomeState extends State<Screen5Home>
 
   void _openSearch(SnapbackState s) {
     final box = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return s.go(13);
+    if (box == null || !box.hasSize) return s.openNewSearch();
     final top = box.localToGlobal(Offset.zero);
     // 스크롤 0 기준 위치를 기억해 두면, 돌아올 때(맨 위에서 시작) 이 자리로 올라온다
     final scrolled = Scrollable.maybeOf(context)?.position.pixels ?? 0;
@@ -57,9 +80,9 @@ class _Screen5HomeState extends State<Screen5Home>
   }
 
   Widget _faded(Widget child) => FadeTransition(
-        opacity: CurvedAnimation(parent: _reveal, curve: Curves.easeOut),
-        child: child,
-      );
+    opacity: CurvedAnimation(parent: _reveal, curve: Curves.easeOut),
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -79,15 +102,56 @@ class _Screen5HomeState extends State<Screen5Home>
         _faded(
           LargeTitle(
             title: 'Snapback',
+            leading: const SnapCharacter(size: 34),
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
             actions: [
-              TitleButton(
-                icon: 'plus',
-                onTap: () => s.pickPhotosFromGallery(startImmediately: true),
-              ),
+              TitleButton(icon: 'plus', onTap: s.openAddPhotos),
               TitleButton(icon: 'gear', onTap: () => s.go(12)),
             ],
           ),
         ),
+        // 디자인 B3 — 큰 안내 문구 (두 번째 줄만 오렌지)
+        _faded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 14, 0, 18),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: '어떤 순간을\n'),
+                  TextSpan(
+                    text: '찾고 있나요?',
+                    style: TextStyle(color: context.sc.pri),
+                  ),
+                ],
+              ),
+              style: TextStyle(
+                fontSize: 32,
+                height: 1.18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -1.2,
+                color: context.sc.ink,
+              ),
+            ),
+          ),
+        ),
+        // 지난 분석에서 실패한 사진이 있으면 알림 (누르면 분석 진행 화면의 기록으로)
+        if (s.analysisFailed > 0 && !s.analysisRunning)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Pressable(
+              onTap: () => s.go(4),
+              child: SnapWarn(
+                '사진 ${s.analysisFailed}장을 분석하지 못했어요. 눌러서 이유를 확인해 보세요.',
+              ),
+            ),
+          ),
+        // 사진을 고를 때 건너뛴 사진 안내 (이미 분석한 사진 등)
+        if (s.pickNotice.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SnapNote(s.pickNotice, icon: 'alert', top: 0),
+          ),
         // 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
         GestureDetector(
           onTap: () => _openSearch(s),
@@ -96,7 +160,8 @@ class _Screen5HomeState extends State<Screen5Home>
             child: SnapSearchBar(
               key: _searchBoxKey,
               enabled: false,
-              hint: '어떤 순간을 찾고 있나요?',
+              showButton: true,
+              hint: '기억나는 장면을 말해 보세요',
             ),
           ),
         ),
@@ -104,46 +169,231 @@ class _Screen5HomeState extends State<Screen5Home>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // .sugg — 가로 스크롤 추천 칩 (가장자리까지)
-              Padding(
-                padding: EdgeInsets.zero,
-                child: Bleed(
-                  child: SizedBox(
-                    height: 34,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _sugg.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 7),
-                      itemBuilder: (_, i) => SnapChip(
-                        label: _sugg[i].$1,
-                        card: true,
-                        onTap: () {
-                          s.go(13);
-                          s.startNewSearch(_sugg[i].$2);
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
               if (months.isEmpty)
                 const SnapEmpty(
                   icon: 'image',
                   text: '아직 사진이 없어요.\n오른쪽 위 ＋ 를 눌러 사진을 추가해 보세요.',
                 )
-              else
-                for (final k in months) ...[
-                  SnapH3('${k.substring(0, 4)}년 ${int.parse(k.substring(5))}월'),
-                  PhotoGrid(
-                    items: groups[k]!,
-                    onTap: (d) => s.openMemory(d.id),
+              else ...[
+                // 디자인 B3 — 다시 꺼내 볼 기억
+                if (s.resurfaceMemory() case (final photo, final title))
+                  _MemoryCard(
+                    photo: photo,
+                    title: title,
+                    onTap: () => s.openMemory(photo.id),
                   ),
-                ],
+                // 최근 사진 · 모두 보기
+                Padding(
+                  padding: const EdgeInsets.only(top: 26, bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _showAll ? '모든 사진' : '최근 사진',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.4,
+                            color: context.sc.ink,
+                          ),
+                        ),
+                      ),
+                      // 편집: 사진을 골라 앱에서 지우기 (원본은 그대로)
+                      Pressable(
+                        onTap: () => setState(() {
+                          _editing = !_editing;
+                          _sel.clear();
+                        }),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14),
+                          child: Text(
+                            _editing ? '완료' : '편집',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: context.sc.pk,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (photos.length > 9)
+                        Pressable(
+                          onTap: () => setState(() => _showAll = !_showAll),
+                          child: Text(
+                            _showAll ? '접기' : '모두 보기',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: context.sc.pk,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_editing)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: SnapSub(
+                            _sel.isEmpty
+                                ? '지울 사진을 눌러 고르세요 · 사진 앱의 원본은 지워지지 않아요'
+                                : '${_sel.length}장 선택됨',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // 전체 선택 / 전체 해제 (모든 사진 기준, 선택이 보이게 모두 보기로 펼침)
+                        Pressable(
+                          onTap: () => setState(() {
+                            final all = photos.map((d) => d.id).toSet();
+                            if (_sel.length == all.length) {
+                              _sel.clear();
+                            } else {
+                              _sel
+                                ..clear()
+                                ..addAll(all);
+                              _showAll = true;
+                            }
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: context.sc.soft,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Text(
+                              _sel.length == photos.length ? '전체 해제' : '전체 선택',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: context.sc.pk,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!_showAll)
+                  PhotoGrid(
+                    items: photos.take(9).toList(),
+                    selected: _editing ? _sel : null,
+                    onTap: (d) => _tapPhoto(s, d),
+                  )
+                else
+                  for (final k in months) ...[
+                    SnapH3(
+                      '${k.substring(0, 4)}년 ${int.parse(k.substring(5))}월',
+                      small: true,
+                    ),
+                    PhotoGrid(
+                      items: groups[k]!,
+                      selected: _editing ? _sel : null,
+                      onTap: (d) => _tapPhoto(s, d),
+                    ),
+                  ],
+                if (_editing)
+                  SnapButton(
+                    label: _sel.isEmpty
+                        ? '지울 사진을 골라 주세요'
+                        : '선택한 사진 ${_sel.length}장 지우기',
+                    onTap: _sel.isEmpty ? null : () => _deleteSelected(s),
+                  ),
+              ],
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 디자인 B3 — 홈 '다시 꺼내 볼 기억' 큰 카드 (사진 + 아래쪽 반투명 이름표)
+class _MemoryCard extends StatelessWidget {
+  const _MemoryCard({required this.photo, required this.title, this.onTap});
+  final PhotoItem photo;
+  final String title;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    final p = photo.date.split('-');
+    final when = p.length == 3
+        ? ' · ${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일'
+        : '';
+    return Pressable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: SizedBox(
+          height: 168,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              PhotoTile(
+                item: photo,
+                radius: 26,
+                showDate: false,
+                iconSize: 0.01,
+              ),
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
+                      decoration: BoxDecoration(
+                        color: c.bg.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '다시 꺼내 볼 기억$when',
+                                  style: TextStyle(fontSize: 13, color: c.pk),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.4,
+                                    color: c.ink,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SnapIcon('arrow', size: 22, color: c.ink),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -161,9 +411,18 @@ class _Screen6FoodCategoryState extends State<Screen6FoodCategory> {
   String _chip = '전체';
   static const _labels = ['전체', '디저트', '면', '커피', '술'];
   static const _food = [
-    ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'), ('glass', '술'),
-    ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'), ('glass', '술'),
-    ('bread', '디저트'), ('bowl', '면'), ('cake', '디저트'), ('cup', '커피'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
+    ('glass', '술'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
+    ('glass', '술'),
+    ('bread', '디저트'),
+    ('bowl', '면'),
+    ('cake', '디저트'),
+    ('cup', '커피'),
   ];
 
   @override
@@ -285,11 +544,7 @@ class Screen7PhotoInfo extends StatelessWidget {
             ),
           ],
         ),
-        SnapButton(
-          label: '이 사진의 기억 보기',
-          ghost: true,
-          onTap: () => s.go(10),
-        ),
+        SnapButton(label: '이 사진의 기억 보기', ghost: true, onTap: () => s.go(10)),
       ],
     );
   }
@@ -453,143 +708,990 @@ class Screen9PrototypeResults extends StatelessWidget {
   }
 }
 
-/// ⑤ 기억 상세 · 연쇄 소환
-class Screen10MemoryDetail extends StatelessWidget {
+/// ⑤ 사진 상세 — 찾은 사진(크게) → 관련된 추억(앨범 2개) → 사진 정보(펼치기)
+class Screen10MemoryDetail extends StatefulWidget {
   const Screen10MemoryDetail({super.key, required this.state});
   final SnapbackState state;
 
   @override
+  State<Screen10MemoryDetail> createState() => _Screen10MemoryDetailState();
+}
+
+class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
+  bool _infoOpen = false; // 사진 정보는 기본으로 접힘
+  int? _shownId;
+
+  @override
   Widget build(BuildContext context) {
-    final s = state;
+    final s = widget.state;
+    final c = context.sc;
     final item = s.db.firstWhere(
       (x) => x.id == s.activeMemoryId,
       orElse: () => s.db.first,
     );
+    if (_shownId != item.id) {
+      _shownId = item.id; // 다른 사진으로 이동하면 정보는 다시 접힌 상태
+      _infoOpen = false;
+    }
     final rel = s.relatedFor(item);
-    final detail =
-        item.caption.isNotEmpty ? item.caption : item.food.join(', ');
+    final record = s.recordForPhoto(item.id);
+    final isDoc = record?.type == 'document';
+    // 관련 사진을 가상 앨범으로 묶어 보여준다. 사진이 없는 앨범은 숨김.
+    final relatedTiles = <Widget>[
+      if (rel.sameDay.isNotEmpty)
+        RelatedTile(
+          icon: 'photos',
+          title: '그날의 사진',
+          count: rel.sameDay.length,
+          onTap: () => s.openRelatedAlbum(0),
+        ),
+      if (rel.similarMood.isNotEmpty)
+        RelatedTile(
+          icon: 'flower',
+          title: isDoc ? '비슷한 문서' : '비슷한 분위기',
+          count: rel.similarMood.length,
+          cool: true,
+          onTap: () => s.openRelatedAlbum(1),
+        ),
+    ];
 
-    Widget section(String icon, String title, List<PhotoItem> list) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SnapH3(title, icon: icon, trailing: '(${list.length})'),
-            if (list.isEmpty)
-              const SnapNote('없어요', top: 0)
-            else
-              PhotoStrip(items: list, onTap: (d) => s.openMemory(d.id)),
-          ],
-        );
+    // 감지되지 않은 내용('인원수 알 수 없음', '특정 복장 없음' 등)은 쉼표 단위로 빼고,
+    // 남는 내용이 없으면 그 줄 자체를 숨긴다
+    String join(Iterable<String> xs) => xs
+        .expand((x) => x.split(RegExp(r'[,，/]')))
+        .map((x) => x.trim())
+        .where((x) => x.isNotEmpty && !isUnknownInfo(x))
+        .join(' · ');
+    final placeText = join([item.place, s.placeNameFor(item) ?? '']);
+    final info = <(String, String, String)>[
+      if (item.isInfoImage) ...[
+        // 스크린샷·문서 등 정보성 이미지: 내용 중심 (촬영 장소 대신 출처)
+        ('calendar', '저장 날짜', item.date),
+        (
+          'image',
+          '이미지 유형',
+          join([imageTypeLabel(item.imageType), ...item.semanticCategory.take(2)]),
+        ),
+        ('store', '출처', item.sourcePlatform),
+        ('target', '핵심 주제', item.mainTopic),
+        ('doc', '주요 내용', item.contentSummary),
+        // 위치 정보가 실제로 있는 경우만 (없으면 '촬영 장소' 줄을 아예 표시하지 않음)
+        if (item.gps != null)
+          ('pin', '촬영 장소', placeText.isNotEmpty ? placeText : '위치 정보 있음'),
+      ] else ...[
+        ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
+        // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
+        (
+          'pin',
+          '촬영 장소',
+          // GPS 만 있고 장소 이름·주소가 아직 없으면 지도로 볼 수 있게 줄은 남긴다
+          placeText.isNotEmpty
+              ? placeText
+              : (item.gps != null ? '위치 정보 있음' : ''),
+        ),
+        // 사람: 새 분석은 '주인공: … / 배경: …' 형식 → 주인공과 배경 인물을 따로 표시
+        if (_peopleParts(item.people) case (final main?, final back))
+          ...[
+            ('person', '주인공', join([main])),
+            ('person', '배경 인물', join([?back])),
+            ('image', '주요 객체·장면', join([...item.food, item.background])),
+          ]
+        else
+          ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
+        ('palette', '분위기·특징', join([item.weather, item.caption])),
+      ],
+    ].where((x) => x.$3.isNotEmpty).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: 'Snapback', onBack: () => s.go(13)),
-        SnapHero(item: item),
-        SnapH2(item.place.isEmpty ? '사진' : item.place, fontSize: 19),
-        SnapSub('${item.date}${item.gps != null ? ' · GPS' : ''} · $detail'),
-        section('calendar', '같은 날의 사진', rel.sameDay),
-        section('pin', '가까운 장소에서', rel.nearPlace),
-        section('palette', '비슷한 분위기·배경', rel.similarMood),
-        const SnapH3('방문 장소', icon: 'store'),
-        const SnapMapBox(),
-        const SnapGroup(
-          children: [
-            SnapRow(
-              leading: IconBadge('cup'),
-              title: '카페 ○○',
-              subtitle: '영업시간 10:00–21:00 · 연결 확실도 높음',
+        SnapbackTopBar(
+          title: item.isInfoImage
+              ? imageTypeLabel(item.imageType)
+              : (item.place.isEmpty ? '사진' : item.place),
+          onBack: () {
+            if (!s.backFromRelated()) s.go(s.detailReturn);
+          },
+          trailing: Text(item.date),
+        ),
+        RoundedPhoto(item: item),
+        if (record != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(
+              record.title,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+                color: c.ink,
+              ),
             ),
-          ],
+          ),
+        if (relatedTiles.isNotEmpty) ...[
+          if (record == null)
+            const SnapH3('관련된 추억')
+          else
+            const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: relatedTiles[0]),
+              const SizedBox(width: 12),
+              Expanded(
+                child: relatedTiles.length > 1
+                    ? relatedTiles[1]
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ],
+        // 사진 정보 (펼치기/접기)
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: SnapCard(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              children: [
+                Pressable(
+                  onTap: () => setState(() => _infoOpen = !_infoOpen),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const IconBadge('sparkle', size: 34, radius: 9),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '사진 정보',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                              color: c.ink,
+                            ),
+                          ),
+                        ),
+                        AnimatedRotation(
+                          turns: _infoOpen ? 0 : -0.25,
+                          duration: const Duration(milliseconds: 200),
+                          child: SnapIcon('down', size: 20, color: c.pk),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_infoOpen) ...[
+                  Container(height: 0.5, color: c.line),
+                  InfoRows(
+                    rows: info,
+                    // GPS 가 있는 사진만: 촬영 장소를 누르면 지도 팝업
+                    actions: {
+                      if (item.gps case [final lat, final lng, ...])
+                        '촬영 장소': () => showPhotoMap(
+                          context,
+                          lat: lat,
+                          lng: lng,
+                          title: isUnknownInfo(item.place) || item.place.isEmpty
+                              ? '촬영 장소'
+                              : item.place,
+                          address: s.placeNameFor(item),
+                        ),
+                    },
+                  ),
+                  // 관련 키워드 (의미 기반 검색어)
+                  if (item.searchKeywords.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final k in item.searchKeywords.take(8))
+                            SnapTag(label: '#$k'),
+                        ],
+                      ),
+                    ),
+                  // 추출된 정보 미리보기 (structured_data 핵심 3~5개)
+                  if (structuredPreview(item.structuredData) case final lines
+                      when lines.isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      decoration: BoxDecoration(
+                        color: c.soft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '추출된 정보',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: c.pk,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          for (final l in lines)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(
+                                keepWords('•  $l'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 14, height: 1.4, color: c.ink),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  // 이 사진만 고해상도로 다시 분석
+                  _ReanalyzeLink(state: s, item: item),
+                ],
+              ],
+            ),
+          ),
+        ),
+        // 공유하기 (사진 정보 아래 · 기록 버튼 위)
+        _ShareButton(item: item, title: s.memoryTitle(item)),
+        // 기록으로 남기기 / 나의 기록 보기
+        SnapButton(
+          label: record == null ? '기록으로 남기기' : '나의 기록 보기',
+          icon: 'bookmark',
+          top: 10,
+          onTap: record == null
+              ? () => s.startRecord(item.id)
+              : () => s.openRecord(record.id),
         ),
       ],
     );
   }
 }
 
-/// ⑥ 앨범 · 스크린샷 (확장). 앨범은 검색 결과 제안으로만 만든다.
-class Screen11Albums extends StatelessWidget {
-  const Screen11Albums({super.key, required this.state});
+/// '주인공: … / 배경: …' 형식이면 (주인공, 배경) 으로 나눈다. 예전 형식이면 (null, null).
+(String?, String?) _peopleParts(String people) {
+  final m = RegExp(r'주인공\s*[:：]\s*([^/]*)').firstMatch(people);
+  if (m == null) return (null, null);
+  final b = RegExp(r'배경\s*[:：]\s*([^/]*)').firstMatch(people);
+  return (m.group(1)!.trim(), b?.group(1)?.trim());
+}
+
+/// 사진 정보 카드 아래쪽 '다시 분석하기' — 이 사진 한 장만 고해상도(글자까지)로 다시 분석
+class _ReanalyzeLink extends StatelessWidget {
+  const _ReanalyzeLink({required this.state, required this.item});
+  final SnapbackState state;
+  final PhotoItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final c = context.sc;
+    final busy = s.reanalyzingId == item.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.analysisVersion >= 2
+                      ? '정보가 정확하지 않다면 다시 분석해 보세요'
+                      : '예전 방식으로 분석된 사진이에요',
+                  style: TextStyle(fontSize: 12.5, color: c.mute),
+                ),
+              ),
+              Pressable(
+                onTap: busy || s.reanalyzingId != null
+                    ? null
+                    : () => s.reanalyzePhoto(item.id),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+                  decoration: BoxDecoration(
+                    color: c.soft,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SnapIcon(busy ? 'refresh' : 'sparkle', size: 15, color: c.pk),
+                      const SizedBox(width: 4),
+                      Text(
+                        busy ? '정밀 분석 중…' : '다시 분석하기',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: c.pk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (s.reanalyzeError != null && !busy)
+            SnapNote(s.reanalyzeError!, icon: 'alert', top: 6),
+        ],
+      ),
+    );
+  }
+}
+
+/// 사진 상세의 '공유하기' — 누르면 시스템 공유 창 (원본을 가져오는 동안은 '준비 중')
+class _ShareButton extends StatefulWidget {
+  const _ShareButton({required this.item, required this.title});
+  final PhotoItem item;
+  final String title;
+
+  @override
+  State<_ShareButton> createState() => _ShareButtonState();
+}
+
+class _ShareButtonState extends State<_ShareButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) => Builder(
+    builder: (btnContext) => SnapButton(
+      label: _busy ? '공유 준비 중…' : '공유하기',
+      icon: _busy ? null : 'share',
+      ghost: true,
+      top: 20,
+      onTap: _busy
+          ? null
+          : () async {
+              setState(() => _busy = true);
+              try {
+                await sharePhoto(btnContext, widget.item, widget.title);
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+    ),
+  );
+}
+
+/// ⑤′ 기억 탭 — 지금까지 검색으로 찾은 사진들을 갤러리로. 누르면 사진 상세(관련된 추억 등).
+class Screen19Memories extends StatefulWidget {
+  const Screen19Memories({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  State<Screen19Memories> createState() => _Screen19MemoriesState();
+}
+
+class _Screen19MemoriesState extends State<Screen19Memories> {
+  bool _editing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final photos = s.foundPhotos;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LargeTitle(
+          title: '기억',
+          actions: [
+            if (photos.isNotEmpty)
+              Pressable(
+                onTap: () => setState(() => _editing = !_editing),
+                child: Text(
+                  _editing ? '완료' : '편집',
+                  style: TextStyle(fontSize: 17, color: c.pk),
+                ),
+              ),
+          ],
+        ),
+        // 기록으로 남긴 사진은 하단 '기록' 탭으로 옮김
+        if (photos.isEmpty) ...[
+          const SnapEmpty(
+            icon: 'heart',
+            text: '아직 찾은 사진이 없어요.\n사진 탭에서 기억나는 장면을 말해 보세요.',
+          ),
+          SnapButton(label: '기억으로 찾기', icon: 'search', onTap: s.openNewSearch),
+        ] else ...[
+          SnapSub(
+            _editing
+                ? '기록에서 뺄 사진을 누르세요 · 사진은 지워지지 않아요'
+                : '검색으로 찾은 사진 ${photos.length}장 · 최근에 찾은 순',
+          ),
+          const SizedBox(height: 12),
+          if (_editing)
+            Bleed(
+              child: GridView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
+                ),
+                itemCount: photos.length,
+                itemBuilder: (_, i) => GestureDetector(
+                  onTap: () => s.forgetFound(photos[i].id),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Opacity(
+                        opacity: 0.7,
+                        child: PhotoTile(
+                          item: photos[i],
+                          radius: 16,
+                          showDate: false,
+                        ),
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: c.pri,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: const SnapIcon(
+                            'close',
+                            size: 13,
+                            color: Colors.white,
+                            strokeWidth: 2.6,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
+        ],
+      ],
+    );
+  }
+}
+
+/// '2026-10-15' → '10월 15일'
+String _md(String date) {
+  final p = date.split('-');
+  if (p.length != 3) return date;
+  return '${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일';
+}
+
+/// 관련된 추억 앨범 — 사진 상세에서 연 가상 앨범(그날의 사진 / 비슷한 분위기)의 전체 사진.
+/// 갤러리에 실제 앨범을 만들지 않고 앱 안에서만 묶어 보여준다.
+class Screen18RelatedAlbum extends StatelessWidget {
+  const Screen18RelatedAlbum({super.key, required this.state});
   final SnapbackState state;
 
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final sameDay = s.relatedAlbumKind == 0;
+    final title = sameDay ? '그날의 사진' : '비슷한 분위기';
+    void back() {
+      if (!s.backFromRelated()) s.go(10);
+    }
+
+    final base = s.db.where((x) => x.id == s.relatedBaseId).firstOrNull;
+    if (base == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SnapbackTopBar(title: title, onBack: back),
+          const SnapEmpty(icon: 'image', text: '사진을 찾을 수 없어요'),
+        ],
+      );
+    }
+    final rel = s.relatedFor(base);
+    var photos = sameDay ? rel.sameDay : rel.similarMood;
+    if (sameDay) {
+      // 그날의 사진은 찍은 순서대로
+      int key(PhotoItem x) => x.takenAtMs ?? x.id;
+      photos = [...photos]..sort((a, b) => key(a).compareTo(key(b)));
+    }
+    final where = base.place.isEmpty || base.place == '알 수 없음'
+        ? ''
+        : ' · ${base.place}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapbackTopBar(
+          title: title,
+          onBack: back,
+          trailing: Text('${photos.length}장'),
+        ),
+        SnapSub(
+          sameDay
+              ? '${base.date}$where에서 함께 찍은 사진 ${photos.length}장'
+              : '이 사진과 분위기가 비슷한 사진 ${photos.length}장',
+        ),
+        const SizedBox(height: 12),
+        if (photos.isEmpty)
+          const SnapEmpty(icon: 'image', text: '이 앨범에 남은 사진이 없어요')
+        else
+          PhotoGrid(items: photos, onTap: (d) => s.openFromRelatedAlbum(d.id)),
+        if (photos.isNotEmpty)
+          SnapButton(
+            label: '이 사진들로 앨범 만들기',
+            icon: 'stack',
+            top: 18,
+            onTap: () => s.draftAlbumFromRelated(
+              sameDay
+                  ? '${_md(base.date)} ${s.memoryTitle(base)}'
+                  : '${s.memoryTitle(base)}의 분위기',
+              base,
+              photos,
+            ),
+          ),
+        const SnapNote('사진 앱에 앨범을 만들지 않고, Snapback 안에서만 묶어 보여줘요'),
+      ],
+    );
+  }
+}
+
+/// ⑥ 앨범 — 흩어진 순간 모으기(AI 앨범) + 카테고리별 내 앨범
+class Screen11Albums extends StatefulWidget {
+  const Screen11Albums({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  State<Screen11Albums> createState() => _Screen11AlbumsState();
+}
+
+class _Screen11AlbumsState extends State<Screen11Albums> {
+  final _req = TextEditingController();
+  static const _examples = ['올여름 친구들과 함께했던 순간들', '저장해 둔 네일 디자인 사진만 모아줘'];
+  bool _confirmRemove = false;
+
+  @override
+  void dispose() {
+    _req.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final shown = s.filteredAlbums;
+    final filterCat = s.categoryById(s.albumFilter);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const LargeTitle(title: '앨범'),
-        SnapGroup(
-          top: 10,
-          children: [
-            SnapRow(
-              leading: const IconBadge('heart'),
-              title: '성장 기록 · 레퍼런스 보드',
-              subtitle: '활용 모드',
-              onTap: () => s.go(15),
-            ),
-          ],
+        // AI 대화형 앨범 만들기
+        Container(
+          margin: const EdgeInsets.only(top: 2),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          decoration: BoxDecoration(
+            color: c.card,
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SnapIcon('sparkle', size: 19.5, color: c.pk),
+                  const SizedBox(width: 6),
+                  Text(
+                    '흩어진 순간 모으기',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                      color: c.ink,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '흩어진 사진들을 의미 있는 하나의 앨범으로.',
+                style: TextStyle(fontSize: 13, color: c.mute),
+              ),
+              const SizedBox(height: 10),
+              SnapSearchBar(
+                controller: _req,
+                showIcon: false,
+                hint: '어떤 순간을 모아볼까요?',
+                busy: s.albumBusy,
+                onSubmit: () => s.composeAlbum(_req.text),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  // 내 사진 DB 로 만든 제안 (없으면 기본 예시)
+                  for (final e in s.albumSuggestions.isNotEmpty
+                      ? s.albumSuggestions
+                      : _examples)
+                    SnapChip(
+                      label: e,
+                      icon: s.albumSuggestions.isNotEmpty ? 'sparkle' : null,
+                      onTap: () {
+                        _req.text = e;
+                        s.composeAlbum(e);
+                      },
+                    ),
+                ],
+              ),
+              if (s.albumBusy) const SnapNote('어울리는 사진을 모으는 중…'),
+              if (s.albumError != null && !s.albumBusy)
+                SnapNote(
+                  s.albumError!,
+                  icon: 'alert',
+                  color: const Color(0xFFC0392B),
+                ),
+            ],
+          ),
         ),
         const SnapH3('내 앨범'),
-        if (s.albums.isEmpty)
-          GestureDetector(
-            onTap: () => s.go(13),
-            child: const SnapEmpty(
-              icon: 'stack',
-              text: '아직 앨범이 없어요.\n사진을 검색하면 어울리는 앨범을 제안해 드려요.',
+        CategoryChips(
+          state: s,
+          selected: s.albumFilter,
+          includeAll: true,
+          onSelect: (id) {
+            _confirmRemove = false;
+            s.setAlbumFilter(id);
+          },
+        ),
+        if (filterCat != null && !filterCat.builtIn)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Pressable(
+              onTap: () {
+                if (_confirmRemove) {
+                  _confirmRemove = false;
+                  s.removeCategory(filterCat.id);
+                } else {
+                  setState(() => _confirmRemove = true);
+                }
+              },
+              child: Text(
+                _confirmRemove
+                    ? '한 번 더 누르면 카테고리가 삭제돼요 (앨범은 남아요)'
+                    : "'${filterCat.label}' 카테고리 삭제",
+                style: TextStyle(fontSize: 13, color: c.mute),
+              ),
             ),
+          ),
+        const SizedBox(height: 16),
+        if (s.albums.isEmpty)
+          const SnapEmpty(
+            icon: 'stack',
+            text: '아직 앨범이 없어요.\n위에서 모아 보고 싶은 순간을 적어 보세요.',
+          )
+        else if (shown.isEmpty)
+          SnapEmpty(
+            icon: 'stack',
+            text:
+                "'${filterCat?.label ?? ''}' 카테고리에 앨범이 없어요.\n앨범을 열어 카테고리를 바꿀 수 있어요.",
           )
         else
-          GridView.builder(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.4,
-            ),
-            itemCount: s.albums.length,
-            itemBuilder: (_, i) {
-              final a = s.albums[i];
-              final photos = s.albumPhotos(a);
-              return PhotoTile(
-                item: photos.isNotEmpty
-                    ? photos.first
-                    : PhotoItem(id: a.id + 4, date: '', place: ''),
-                radius: 12,
-                label: '${a.title} · ${photos.length}',
-                onTap: () => s.openAlbum(a.id),
-              );
-            },
+          AlbumCardGrid(
+            children: [
+              for (final a in shown)
+                () {
+                  final photos = s.albumPhotos(a);
+                  return AlbumCard(
+                    cover: photos.isNotEmpty
+                        ? photos.first
+                        : PhotoItem(id: a.id + 4, date: '', place: ''),
+                    title: a.title,
+                    count: photos.length,
+                    badge: s.albumFilter == null
+                        ? s.categoryById(a.category)?.label
+                        : null,
+                    onTap: () => s.openAlbum(a.id),
+                  );
+                }(),
+            ],
           ),
-        const SnapH3('스크린샷 정보 추출', icon: 'phone'),
-        const SnapGroup(
-          children: [
-            SnapRow(
-              leading: IconBadge('tag', gradIndex: 3),
-              title: '운동화',
-              subtitle: '브랜드·모델·₩129,000',
-              trailingText: '복사',
+      ],
+    );
+  }
+}
+
+/// 앨범 카테고리 캡슐 버튼 줄 (가로 스크롤) + 맨 끝 '＋ 추가'.
+/// includeAll: 맨 앞에 '전체'(null) 포함 — 앨범 탭 필터용.
+/// includeAll 이 false 면 선택한 칩을 다시 누를 때 '분류 없음'(null)으로 돌아간다.
+class CategoryChips extends StatefulWidget {
+  const CategoryChips({
+    super.key,
+    required this.state,
+    required this.selected,
+    required this.onSelect,
+    this.includeAll = false,
+    this.aiId,
+  });
+
+  final SnapbackState state;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+  final bool includeAll;
+
+  /// AI 가 추천한 카테고리 id — 칩에 반짝이 아이콘 표시
+  final String? aiId;
+
+  @override
+  State<CategoryChips> createState() => _CategoryChipsState();
+}
+
+class _CategoryChipsState extends State<CategoryChips> {
+  bool _adding = false;
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final c = widget.state.addCategory(_name.text);
+    _name.clear();
+    setState(() => _adding = false);
+    if (c != null) widget.onSelect(c.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = widget.selected;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Bleed(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                if (widget.includeAll)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SnapChip(
+                      label: '전체',
+                      accent: true,
+                      selected: sel == null,
+                      onTap: () => widget.onSelect(null),
+                    ),
+                  ),
+                for (final cat in widget.state.allCategories)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SnapChip(
+                      label: cat.label,
+                      icon: cat.id == widget.aiId ? 'sparkle' : null,
+                      accent: true,
+                      selected: sel == cat.id,
+                      onTap: () => widget.onSelect(
+                        !widget.includeAll && sel == cat.id ? null : cat.id,
+                      ),
+                    ),
+                  ),
+                SnapChip(
+                  label: '추가',
+                  icon: 'plus',
+                  dashed: true,
+                  onTap: () => setState(() => _adding = !_adding),
+                ),
+              ],
             ),
-            SnapRow(
-              leading: IconBadge('receipt', gradIndex: 2),
-              title: '예약 확인서',
-              subtitle: '11.20 · 2명 · 장소',
-              trailingText: '일정 추가',
-            ),
-          ],
+          ),
         ),
-        const SnapH3('취향 요약', icon: 'compass'),
-        const SnapGroup(
-          children: [
-            SnapRow(
-              leading: IconBadge('cup'),
-              title: '“카페와 미술관을 자주 가요”',
-              subtitle: '다음 나들이: 한남 · 삼청 일대 추천',
+        if (_adding)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: SnapSearchBar(
+              controller: _name,
+              showIcon: false,
+              hint: '새 카테고리 이름 (예: 반려동물)',
+              buttonIcon: 'check',
+              onSubmit: _submit,
             ),
-          ],
+          ),
+      ],
+    );
+  }
+}
+
+/// 앨범 미리보기 — AI가 고른 사진 확인 · 빼고 싶은 사진 선택/제외 · 이름 수정 · 최종 생성
+class Screen17AlbumPreview extends StatefulWidget {
+  const Screen17AlbumPreview({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  State<Screen17AlbumPreview> createState() => _Screen17AlbumPreviewState();
+}
+
+class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
+  late final _title = TextEditingController(
+    text: widget.state.albumDraft?.title ?? '',
+  );
+
+  /// 처음 받은 AI 추천 카테고리 (사용자가 바꿔도 표시용으로 유지)
+  late final String? _aiCategory = widget.state.albumDraft?.category;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final draft = s.albumDraft;
+    if (draft == null) {
+      return Column(
+        children: [
+          SnapbackTopBar(
+            title: '앨범 미리보기',
+            onBack: () => s.go(s.albumDraftReturn),
+          ),
+          const SnapEmpty(icon: 'stack', text: '미리볼 앨범이 없어요'),
+        ],
+      );
+    }
+    final byId = {for (final d in s.db) d.id: d};
+    final photos = [
+      for (final id in draft.photoIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+    final sel = s.albumDraftSelected;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapbackTopBar(
+          title: '앨범 미리보기',
+          onBack: () => s.go(s.albumDraftReturn),
+          trailing: Text('${photos.length}장'),
         ),
+        const SnapH3('앨범 이름', small: true),
+        SnapSearchBar(
+          controller: _title,
+          showIcon: false,
+          hint: '앨범 이름',
+          buttonIcon: 'check',
+          onSubmit: () => FocusScope.of(context).unfocus(),
+        ),
+        const SnapH3('카테고리', small: true),
+        CategoryChips(
+          state: s,
+          selected: draft.category,
+          aiId: _aiCategory,
+          onSelect: s.setDraftCategory,
+        ),
+        if (_aiCategory != null)
+          SnapNote(
+            "AI 추천: '${s.categoryById(_aiCategory)?.label ?? ''}' · 눌러서 바꿀 수 있어요",
+            top: 8,
+          ),
+        // 기본은 모두 선택. 빼고 싶은 사진을 눌러 선택 해제
+        Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SnapSub(
+                  sel.isEmpty
+                      ? 'AI가 고른 사진 ${photos.length}장이 모두 선택돼 있어요. 빼고 싶은 사진을 눌러 선택을 해제하세요.'
+                      : '${photos.length}장 중 ${photos.length - sel.length}장 선택됨',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Pressable(
+                onTap: () => s.setAllDraftPhotos(sel.isNotEmpty),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: c.soft,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    sel.isEmpty ? '전체 해제' : '전체 선택',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: c.pk),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        GridView.builder(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
+          ),
+          itemCount: photos.length,
+          itemBuilder: (_, i) {
+            final d = photos[i];
+            final on = !sel.contains(d.id); // 선택됨 = 앨범에 들어감
+            return GestureDetector(
+              onTap: () => s.toggleDraftPhoto(d.id),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 선택 해제된 사진은 흐리게
+                  Opacity(
+                    opacity: on ? 1 : 0.4,
+                    child: PhotoTile(item: d),
+                  ),
+                  if (on)
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: c.pri, width: 3),
+                      ),
+                    ),
+                  Positioned(
+                    top: 4,
+                    right: 5,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: on ? c.pri : const Color(0x99FFFFFF),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      alignment: Alignment.center,
+                      child: on
+                          ? const SnapIcon('check', size: 12, color: Colors.white, strokeWidth: 2.6)
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        SnapButton(
+          label: photos.length - sel.length <= 0
+              ? '앨범에 넣을 사진을 골라 주세요'
+              : '앨범 만들기 (${photos.length - sel.length}장)',
+          onTap: photos.length - sel.length <= 0
+              ? null
+              : () => s.confirmAlbumDraft(_title.text),
+        ),
+        const SnapNote('만들기 전까지는 저장되지 않아요'),
       ],
     );
   }
@@ -645,17 +1747,6 @@ class _Screen12SettingsState extends State<Screen12Settings> {
           ],
         ),
         if (s.hiddenWarning.isNotEmpty) SnapWarn(s.hiddenWarning),
-        SnapGroup(
-          children: [
-            SnapRow(
-              leading: const IconBadge('flask'),
-              title: '사용성 테스트 모드',
-              subtitle: 'Top-5 포함률·시간·질문 수 측정',
-              trailing: const Chevron(),
-              onTap: () => s.go(14),
-            ),
-          ],
-        ),
         const SnapH3('분석', small: true),
         SnapGroup(
           top: 0,
@@ -680,6 +1771,7 @@ class _Screen12SettingsState extends State<Screen12Settings> {
             ),
           ],
         ),
+        _RelabelSection(state: s),
         // Flutter 추가: iOS 앱이 연결할 API 서버 주소
         const SnapH3('서버', small: true),
         SnapSearchBar(
@@ -690,7 +1782,124 @@ class _Screen12SettingsState extends State<Screen12Settings> {
           keyboardType: TextInputType.url,
           onSubmit: () => s.setServerUrl(_url.text),
         ),
-        SnapNote(s.aiStatusText),
+        if (s.aiStatusText.isNotEmpty) SnapNote(s.aiStatusText),
+        // OpenStreetMap 이용 조건: 출처 표시
+        const SnapNote('촬영 장소 주소: © OpenStreetMap 기여자'),
+        // 앱 초기화 (확인 팝업)
+        const SnapH3('초기화', small: true),
+        Pressable(
+          onTap: () async {
+            final ok = await showSnapConfirm(
+              context,
+              title: '앱을 초기화할까요?',
+              message:
+                  '분석한 사진 정보, 앨범, 기록, 찾은 사진이 모두 지워지고\n처음 화면으로 돌아가요.\n사진 앱의 원본 사진은 지워지지 않아요.',
+              confirmLabel: '초기화',
+            );
+            if (ok) await s.resetAll();
+          },
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 50),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFD93A2B)),
+            ),
+            child: const Text(
+              '앱 초기화',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFD93A2B),
+              ),
+            ),
+          ),
+        ),
+        const SnapNote('모든 분석 정보·앨범·기록을 지우고 처음부터 다시 시작해요'),
+      ],
+    );
+  }
+}
+
+/// 설정 > 사진 다시 분석하기: 이미 분석한 사진의 설명을 새로 만든다 (두 번 눌러 시작)
+class _RelabelSection extends StatefulWidget {
+  const _RelabelSection({required this.state});
+  final SnapbackState state;
+
+  @override
+  State<_RelabelSection> createState() => _RelabelSectionState();
+}
+
+class _RelabelSectionState extends State<_RelabelSection> {
+  bool _confirm = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final c = context.sc;
+    final n = s.relabelTargets.length;
+    final busy = s.analysisRunning;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SnapGroup(
+          top: 12,
+          children: [
+            SnapRow(
+              leading: const IconBadge('sparkle'),
+              title: s.relabelRunning
+                  ? '다시 분석하는 중 · ${s.relabelDone} / ${s.relabelTotal}장'
+                  : _confirm
+                  ? '한 번 더 누르면 $n장을 다시 분석해요'
+                  : '사진 다시 분석하기',
+              subtitle: s.relabelRunning
+                  ? '앱을 쓰는 동안 계속 진행돼요'
+                  : '분석한 사진 $n장의 설명을 최신 AI로 새로 만들어요',
+              trailing: s.relabelRunning
+                  ? Pressable(
+                      onTap: s.cancelRelabel,
+                      child: Text(
+                        '중지',
+                        style: TextStyle(fontSize: 15, color: c.pk),
+                      ),
+                    )
+                  : const Chevron(),
+              onTap: s.relabelRunning || n == 0 || busy
+                  ? null
+                  : () {
+                      if (_confirm) {
+                        _confirm = false;
+                        s.relabelAll();
+                      } else {
+                        setState(() => _confirm = true);
+                      }
+                    },
+            ),
+          ],
+        ),
+        if (s.relabelRunning)
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4, right: 4),
+            child: SnapBar(
+              value: s.relabelTotal == 0 ? 0 : s.relabelDone / s.relabelTotal,
+              background: c.fill,
+              color: c.pri,
+            ),
+          ),
+        if (s.relabelFinished && !s.relabelRunning)
+          SnapNote(
+            [
+              '다시 분석 완료: ${s.relabelDone - s.relabelSkipped - s.relabelFailed}장',
+              if (s.relabelSkipped > 0) '원본을 찾을 수 없어 건너뜀 ${s.relabelSkipped}장',
+              if (s.relabelFailed > 0) '실패 ${s.relabelFailed}장',
+            ].join(' · '),
+          ),
+        if (busy && !s.relabelRunning)
+          const SnapNote('사진 분석이 끝난 뒤에 다시 분석할 수 있어요'),
+        if (n == 0) const SnapNote('아직 분석한 사진이 없어요'),
+        if (!s.relabelRunning && !s.relabelFinished && n > 0 && !busy)
+          const SnapNote('사진·앨범·기록은 그대로 두고 설명만 바꿔요 · 기록과 앨범도 그대로예요'),
       ],
     );
   }
@@ -707,6 +1916,20 @@ class Screen13Search extends StatefulWidget {
 
 class _Screen13SearchState extends State<Screen13Search>
     with SingleTickerProviderStateMixin {
+  /// AI 질문에 보기 대신 직접 적는 답
+  final _answer = TextEditingController();
+
+  /// 크게 보여 주는 사진 위치 (다른 후보를 누르면 여기로 스크롤)
+  final _topResultKey = GlobalKey();
+
+  void _sendAnswer() {
+    final t = _answer.text.trim();
+    if (t.isEmpty || widget.state.searchBusy) return;
+    _answer.clear();
+    FocusScope.of(context).unfocus();
+    widget.state.answerFollowUp(t.length > 200 ? t.substring(0, 200) : t);
+  }
+
   late final _ctrl = TextEditingController(
     text: widget.state.searchHistory.isNotEmpty
         ? widget.state.searchHistory.first
@@ -788,20 +2011,21 @@ class _Screen13SearchState extends State<Screen13Search>
     _enter.dispose();
     _focus.dispose();
     _ctrl.dispose();
+    _answer.dispose();
     super.dispose();
   }
 
   Widget _revealed(Widget child, {double rise = 0}) => AnimatedBuilder(
-        animation: _reveal,
-        builder: (_, w) => Opacity(
-          opacity: _reveal.value,
-          child: Transform.translate(
-            offset: Offset(0, rise * (1 - _reveal.value)),
-            child: w,
-          ),
-        ),
-        child: child,
-      );
+    animation: _reveal,
+    builder: (_, w) => Opacity(
+      opacity: _reveal.value,
+      child: Transform.translate(
+        offset: Offset(0, rise * (1 - _reveal.value)),
+        child: w,
+      ),
+    ),
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -810,13 +2034,7 @@ class _Screen13SearchState extends State<Screen13Search>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _revealed(
-          SnapbackTopBar(
-            title: '기억으로 찾기',
-            onBack: _back,
-            trailing: Text(s.aiStatusText),
-          ),
-        ),
+        _revealed(SnapbackTopBar(title: '기억으로 찾기', onBack: _back)),
         _revealed(rise: 10, const SnapH2('어떤 사진을\n찾고 계시나요?')),
         Padding(
           padding: const EdgeInsets.only(top: 6, bottom: 12),
@@ -846,7 +2064,6 @@ class _Screen13SearchState extends State<Screen13Search>
 
   Widget _results(SnapbackState s, SnapbackColors c) {
     final byId = {for (final d in s.db) d.id: d};
-    if (s.searchBusy) return const SnapNote('AI가 기억을 더듬는 중…');
     if (s.searchError != null) {
       return SnapNote(
         s.searchError!,
@@ -855,6 +2072,7 @@ class _Screen13SearchState extends State<Screen13Search>
       );
     }
     if (s.searchResults.isEmpty) {
+      if (s.searchBusy) return const SnapNote('AI가 기억을 더듬는 중…');
       return SnapEmpty(
         icon: 'sparkle',
         text: s.testSession != null
@@ -864,252 +2082,214 @@ class _Screen13SearchState extends State<Screen13Search>
     }
     final valid = s.searchResults.where((x) => byId.containsKey(x.id)).toList()
       ..sort((a, b) => b.score.compareTo(a.score));
+    if (valid.isEmpty) return const SnapNote('찾은 사진이 없어요');
     String clues(SearchRankedItem x) =>
-        '✓ ${x.matched.join(' ✓ ')}${x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : ''}';
-    final top = valid.isNotEmpty ? valid.first : null;
-    final rest = valid.skip(1).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 1순위 — 크게
-        if (top != null)
-          Pressable(
-            onTap: () => s.openMemory(top.id),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PhotoTile(
-                  item: byId[top.id]!,
-                  height: 220,
-                  width: double.infinity,
-                  radius: 13,
-                  showDate: false,
-                  iconSize: 60,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: c.soft,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        '일치 확률 ${top.score}%',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: c.pk,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${byId[top.id]!.place} · ${byId[top.id]!.date}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.3,
-                          color: c.ink,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    clues(top),
-                    style: TextStyle(fontSize: 13, color: c.mute),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        // 2순위 이하 — #ao .row (58 썸네일)
-        if (rest.isNotEmpty) ...[
-          const SnapH3('다음으로 확률이 높은 사진'),
-          SnapGroup(
-            top: 0,
-            separatorInset: 86,
-            children: [
-              for (final x in rest)
-                SnapRow(
-                  leading: IconBadge(
-                    byId[x.id]!.icon,
-                    gradIndex: x.id,
-                    size: 58,
-                    radius: 10,
-                    image: decodeDataUrl(byId[x.id]!.thumbDataUrl),
-                  ),
-                  title: byId[x.id]!.place,
-                  subtitle: byId[x.id]!.date,
-                  subtitle2: clues(x),
-                  trailingText: '${x.score}%',
-                  onTap: () => s.openMemory(x.id),
-                ),
-            ],
-          ),
-        ],
-        if (s.activeQuestion != null) ...[
-          SnapBubble(child: Text(s.activeQuestion!.text)),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final o in s.activeQuestion!.options)
-                SnapChip(label: o, onTap: () => s.answerFollowUp(o)),
-              SnapChip(
-                label: '기억 안 나요',
-                dashed: true,
-                onTap: () => s.answerFollowUp('기억 안 나요'),
-              ),
-            ],
-          ),
-        ] else if (s.searchCompleted)
-          const SnapNote('후보가 충분히 좁혀졌어요', icon: 'check'),
-        if (s.albumSuggestion case final sug?)
-          _AlbumSuggestionCard(
-            key: ValueKey('album-sug-${s.searchHistory.first}'),
-            state: s,
-            suggestion: sug,
-          )
-        else if (s.albumById(s.lastCreatedAlbumId) case final made?)
-          SnapGroup(
-            top: 16,
-            children: [
-              SnapRow(
-                leading: const IconBadge('check'),
-                title: '‘${made.title}’ 앨범을 만들었어요',
-                subtitle: '사진 ${made.photoIds.length}장 · 앨범 탭에서 볼 수 있어요',
-                trailingText: '보러 가기',
-                onTap: () => s.openAlbum(made.id),
-              ),
-            ],
-          ),
-      ],
+        '${x.matched.isNotEmpty ? '✓ ${x.matched.join(' ✓ ')}' : ''}'
+        '${x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : ''}';
+    // 다른 후보를 눌러 크게 올려 둔 사진이 있으면 그것을, 아니면 1순위를 크게
+    final top = valid.firstWhere(
+      (x) => x.id == s.pinnedResultId,
+      orElse: () => valid.first,
     );
-  }
-}
+    final pinned = top.id != valid.first.id;
+    final topPhoto = byId[top.id]!;
+    // 다른 후보: 가장 유력한 사진과 카테고리나 키워드가 하나라도 같은 사진만
+    final rest = valid
+        .where((x) => x.id != top.id)
+        .where((x) => SnapbackState.sharesTopic(topPhoto, byId[x.id]!))
+        .toList();
+    // 답변 기록 (Q: … / A: …) — 지금까지 더한 기억 단서
+    final answers = s.searchHistory
+        .skip(1)
+        .map((h) => RegExp(r'^Q:\s*(.+?)\s*/\s*A:\s*(.+)$').firstMatch(h))
+        .whereType<RegExpMatch>()
+        .toList();
 
-/// 검색 결과 아래 "이런 앨범으로 만들어 드릴까요?" 제안 카드.
-class _AlbumSuggestionCard extends StatefulWidget {
-  const _AlbumSuggestionCard({
-    super.key,
-    required this.state,
-    required this.suggestion,
-  });
-
-  final SnapbackState state;
-  final AlbumSuggestion suggestion;
-
-  @override
-  State<_AlbumSuggestionCard> createState() => _AlbumSuggestionCardState();
-}
-
-class _AlbumSuggestionCardState extends State<_AlbumSuggestionCard> {
-  late final TextEditingController _title =
-      TextEditingController(text: widget.suggestion.title);
-
-  @override
-  void dispose() {
-    _title.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = widget.state;
-    final sug = widget.suggestion;
-    final c = context.sc;
-    final byId = {for (final d in s.db) d.id: d};
-    final photos = [
-      for (final id in sug.photoIds)
-        if (byId[id] != null) byId[id]!,
-    ];
-    return Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      decoration: BoxDecoration(
-        color: c.card,
-        borderRadius: BorderRadius.circular(13),
-      ),
+    return AnimatedOpacity(
+      opacity: s.searchBusy ? 0.45 : 1,
+      duration: const Duration(milliseconds: 200),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              SnapIcon('folder', size: 19.5, color: c.pk),
-              const SizedBox(width: 6),
-              Text(
-                '이런 앨범으로 만들어 드릴까요?',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.3,
-                  color: c.ink,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '이번 검색과 잘 맞는 사진 ${photos.length}장을 묶을게요',
-            style: TextStyle(fontSize: 13, color: c.mute),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 56,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: photos.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 6),
-              itemBuilder: (_, i) => PhotoTile(
-                item: photos[i],
-                width: 56,
-                height: 56,
-                radius: 10,
-                iconSize: 22,
-                showDate: false,
+          if (answers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Wrap(
+                children: [
+                  for (final m in answers)
+                    SnapTag(icon: 'check', label: m.group(2)!),
+                ],
               ),
             ),
+          // 다른 후보를 올려 보고 있으면 안내 + 1순위로 돌아가기
+          if (pinned)
+            Padding(
+              key: _topResultKey,
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '다른 후보를 크게 보고 있어요 · 맞으면 "맞아요"를 눌러 주세요',
+                      style: TextStyle(fontSize: 13, color: c.mute),
+                    ),
+                  ),
+                  Pressable(
+                    onTap: () => s.pinResult(null),
+                    child: Text(
+                      '1순위 보기',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.pk),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // 가장 가능성이 높은 사진(또는 고른 후보) — 크게. 누르면 '맞아요'와 같음
+          GestureDetector(
+            key: pinned ? null : _topResultKey,
+            onTap: () => s.openMemory(top.id),
+            // 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 크게
+            child: FullWidthPhoto(item: topPhoto, radius: 13, fallbackHeight: 260),
           ),
           const SizedBox(height: 10),
-          SnapSearchBar(
-            controller: _title,
-            showIcon: false,
-            hint: '앨범 이름',
-            buttonIcon: 'check',
-            onSubmit: () => s.createAlbumFromSuggestion(sug, _title.text),
-          ),
           Row(
             children: [
-              Expanded(
-                child: SnapButton(
-                  label: '괜찮아요',
-                  ghost: true,
-                  top: 12,
-                  onTap: s.dismissAlbumSuggestion,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: c.soft,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  '일치 확률 ${top.score}%',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: c.pk,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: SnapButton(
-                  label: '앨범 만들기',
-                  top: 12,
-                  onTap: () => s.createAlbumFromSuggestion(sug, _title.text),
+                child: Text(
+                  '${topPhoto.place} · ${topPhoto.date}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    color: c.ink,
+                  ),
                 ),
               ),
             ],
           ),
+          if (clues(top).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                clues(top),
+                style: TextStyle(fontSize: 13, color: c.mute),
+              ),
+            ),
+          // [맞아요] / [질문 한 번 더하기]
+          if (!s.questionShown)
+            Row(
+              children: [
+                Expanded(
+                  child: SnapButton(
+                    label: '맞아요',
+                    icon: 'check',
+                    onTap: s.searchBusy ? null : () => s.openMemory(top.id),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SnapButton(
+                    label: s.searchBusy ? '질문 만드는 중…' : '질문 한 번 더하기',
+                    icon: s.searchBusy ? null : 'chat',
+                    ghost: true,
+                    onTap: s.searchBusy ? null : s.askMore,
+                  ),
+                ),
+              ],
+            )
+          else if (s.activeQuestion != null) ...[
+            const SizedBox(height: 8),
+            SnapBubble(child: Text(keepWords(s.activeQuestion!.text))),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final o in s.activeQuestion!.options)
+                  SnapChip(label: o, onTap: () => s.answerFollowUp(o)),
+                SnapChip(
+                  label: '기억 안 나요',
+                  dashed: true,
+                  onTap: () => s.answerFollowUp('기억 안 나요'),
+                ),
+              ],
+            ),
+            // 보기에 맞는 답이 없을 때: 직접 입력 (답 또는 새로 떠오른 단서)
+            const SizedBox(height: 10),
+            SnapSearchBar(
+              controller: _answer,
+              showIcon: false,
+              hint: '직접 입력하기 (예: 창가 자리였어요)',
+              busy: s.searchBusy,
+              onSubmit: _sendAnswer,
+            ),
+          ] else ...[
+            const SnapNote('더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.'),
+            SnapButton(
+              label: '맞아요',
+              icon: 'check',
+              onTap: () => s.openMemory(top.id),
+            ),
+          ],
+          // 다른 후보 (작게)
+          if (rest.isNotEmpty) ...[
+            const SnapH3('다른 후보'),
+            SnapGroup(
+              top: 0,
+              separatorInset: 86,
+              children: [
+                for (final x in rest)
+                  SnapRow(
+                    leading: IconBadge(
+                      byId[x.id]!.icon,
+                      gradIndex: x.id,
+                      size: 58,
+                      radius: 10,
+                      image: photoImageProvider(byId[x.id]!, logicalSize: 58),
+                    ),
+                    title: byId[x.id]!.place,
+                    subtitle: byId[x.id]!.date,
+                    subtitle2: clues(x).isEmpty ? null : clues(x),
+                    trailingText: '${x.score}%',
+                    // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
+                    onTap: () {
+                      s.pinResult(x.id);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        final ctx = _topResultKey.currentContext;
+                        if (ctx != null) {
+                          Scrollable.ensureVisible(
+                            ctx,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                            alignment: 0.1,
+                          );
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1133,10 +2313,9 @@ class _Screen14UsabilityTestState extends State<Screen14UsabilityTest> {
     final s = widget.state;
     final c = context.sc;
     final vis = s.visiblePhotos;
-    final current =
-        (_selectedId != null && vis.any((d) => d.id == _selectedId))
-            ? _selectedId!
-            : (vis.isNotEmpty ? vis.first.id : 1);
+    final current = (_selectedId != null && vis.any((d) => d.id == _selectedId))
+        ? _selectedId!
+        : (vis.isNotEmpty ? vis.first.id : 1);
     final logs = s.testLogs;
     final n = logs.length;
 
@@ -1199,7 +2378,8 @@ class _Screen14UsabilityTestState extends State<Screen14UsabilityTest> {
               for (final x in logs)
                 SnapRow(
                   title: '#${x.id}',
-                  subtitle: '${(x.ms / 1000).round()}초 · 질문 ${x.questions}회 · '
+                  subtitle:
+                      '${(x.ms / 1000).round()}초 · 질문 ${x.questions}회 · '
                       '첫 순위 ${x.firstRank > 0 ? x.firstRank : '밖'} · '
                       '${x.hit ? '✓ 찾음' : '✕ 못 찾음'}',
                 ),
@@ -1274,7 +2454,10 @@ class _Screen15ModeState extends State<Screen15Mode> {
               TextSpan(
                 children: [
                   TextSpan(text: '${k.substring(0, 4)}.${k.substring(5)} '),
-                  TextSpan(text: _age(k), style: TextStyle(color: c.pk)),
+                  TextSpan(
+                    text: _age(k),
+                    style: TextStyle(color: c.pk),
+                  ),
                 ],
               ),
               style: TextStyle(
@@ -1292,9 +2475,13 @@ class _Screen15ModeState extends State<Screen15Mode> {
       final q = _query.text;
       final list = vis
           .where(
-            (d) => [d.place, d.background, d.caption, ...d.food, d.weather]
-                .join(' ')
-                .contains(q),
+            (d) => [
+              d.place,
+              d.background,
+              d.caption,
+              ...d.food,
+              d.weather,
+            ].join(' ').contains(q),
           )
           .toList();
       children.addAll([
@@ -1354,7 +2541,44 @@ class Screen16AlbumDetail extends StatefulWidget {
 }
 
 class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
-  bool _confirmDelete = false;
+  bool _editing = false;
+  final _name = TextEditingController();
+  final _nameFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _nameFocus.dispose();
+    super.dispose();
+  }
+
+  void _startEdit(String title) {
+    _name.text = title;
+    _name.selection = TextSelection(baseOffset: 0, extentOffset: title.length);
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _nameFocus.requestFocus(),
+    );
+  }
+
+  void _finishEdit(int albumId) {
+    if (!_editing) return;
+    widget.state.renameAlbum(albumId, _name.text);
+    setState(() => _editing = false);
+  }
+
+  /// 삭제 확인 팝업
+  Future<void> _confirmDelete(int albumId, String title) async {
+    final ok = await showSnapConfirm(
+      context,
+      title: '앨범을 삭제할까요?',
+      message: "'$title' 앨범만 지워지고,\n사진과 분석 정보는 그대로 남아요.",
+    );
+    if (ok) {
+      widget.state.deleteAlbum(albumId);
+      widget.state.go(11);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1374,29 +2598,99 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: album.title, onBack: () => s.go(11)),
+        // 제목을 누르면 그 자리에서 앨범 이름 편집
+        SnapbackTopBar(
+          title: album.title,
+          onBack: () {
+            _finishEdit(album.id);
+            s.go(11);
+          },
+          titleWidget: _editing
+              ? IntrinsicWidth(
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 120),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: context.sc.card,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: context.sc.pri, width: 1.2),
+                    ),
+                    child: TextField(
+                      controller: _name,
+                      focusNode: _nameFocus,
+                      textAlign: TextAlign.center,
+                      maxLength: 30,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _finishEdit(album.id),
+                      onTapOutside: (_) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        _finishEdit(album.id);
+                      },
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.3,
+                        color: context.sc.ink,
+                      ),
+                      decoration: const InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                )
+              : Pressable(
+                  onTap: () => _startEdit(album.title),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          album.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.3,
+                            color: context.sc.ink,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      SnapIcon('pencil', size: 15, color: context.sc.mute),
+                    ],
+                  ),
+                ),
+        ),
         SnapSub(
-          '사진 ${photos.length}장 · ${made.year}.${made.month}.${made.day} 검색에서 만듦',
+          '사진 ${photos.length}장 · ${made.year}.${made.month}.${made.day} 만듦',
         ),
         const SizedBox(height: 12),
+        CategoryChips(
+          state: s,
+          selected: album.category,
+          onSelect: (id) => s.setAlbumCategory(album.id, id),
+        ),
+        SnapNote(
+          album.category == null
+              ? '카테고리를 고르면 앨범 탭에서 모아 볼 수 있어요'
+              : '고른 카테고리를 한 번 더 누르면 분류가 해제돼요',
+          top: 8,
+        ),
+        const SizedBox(height: 14),
         if (photos.isEmpty)
-          const SnapEmpty(
-            icon: 'image',
-            text: '이 앨범의 사진이 삭제되었거나\n숨김 처리되었어요',
-          )
+          const SnapEmpty(icon: 'image', text: '이 앨범의 사진이 삭제되었거나\n숨김 처리되었어요')
         else
           PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
         SnapButton(
-          label: _confirmDelete ? '한 번 더 누르면 앨범이 삭제돼요' : '앨범 삭제',
+          label: '앨범 삭제',
           ghost: true,
-          onTap: () {
-            if (_confirmDelete) {
-              s.deleteAlbum(album.id);
-              s.go(11);
-            } else {
-              setState(() => _confirmDelete = true);
-            }
-          },
+          onTap: () => _confirmDelete(album.id, album.title),
         ),
         const SnapNote('앨범을 지워도 사진과 분석 정보는 그대로 남아요'),
       ],

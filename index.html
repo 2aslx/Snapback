@@ -226,13 +226,13 @@ function drawDB(){if(!window.dbv)return;dbv.innerHTML='<div class="hs" style="ma
 drawDB();
 const shrink=(f,m=640)=>new Promise(r=>{const im=new Image();im.onload=()=>{const k=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>r({b,u:c.toDataURL('image/jpeg',.5)}),'image/jpeg',.8)};im.src=URL.createObjectURL(f)});
 // 실제로 서버에 연결 확인 (API 키 모양까지)
-(async()=>{try{const r=await fetch('/api/health',{signal:AbortSignal.timeout(5000)}),j=await r.json();sm=!!j.ok;aiS.textContent=j.key?'AI 연결됨 ✓':'API 키 확인 필요'}catch(e){sm=false;aiS.textContent='서버 연결 안 됨'}})();
+(async()=>{try{const r=await fetch('/api/health',{signal:AbortSignal.timeout(5000)}),j=await r.json();sm=!!j.ok;aiS.textContent=j.key?'':'API 키 확인 필요'}catch(e){sm=false;aiS.textContent='서버 연결 안 됨'}})();
 async function analyze(f){const {u}=await shrink(f,640),{u:t}=await shrink(f,160);let ex={};try{const g=(await exifr.gps(f))||{},o=(await exifr.parse(f,['DateTimeOriginal']))||{};ex={gps:g.latitude?[g.latitude,g.longitude]:null,dt:o.DateTimeOriginal}}catch(e){}
 const r=await api('/api/analyze',{image:u}),dt=ex.dt||new Date(f.lastModified);const d={id:nid++,key:key(f),date:new Date(dt.getTime()-dt.getTimezoneOffset()*6e4).toISOString().slice(0,10),gps:ex.gps,exif:!!ex.dt,...r,thumb:t};DB.push(d);save();drawDB();drawHome();return d}
 if(window.fi)fi.onchange=async()=>{if(fi.dataset.busy)return;if(!sm){last.innerHTML='<p class="note">'+I('alert')+' '+err({code:'network'})+'</p>';fi.value='';return}
 fi.dataset.busy=1;lab.style.opacity=.5;lab.style.pointerEvents='none';last.innerHTML='';let bad=0;const L=[...fi.files].slice(0,4);
 for(const [i,f] of L.entries()){aiS.textContent=`사진 분석 중… ${i+1}/${L.length}`;try{const d=await analyze(f);last.insertAdjacentHTML('beforeend',`<div class="row"><span class="ic">${I('sparkle')}</span><div>#${d.id} ${esc(d.caption)}<small>${esc(d.place)} · ${esc([].concat(d.food||[]).join(', ')||'음식 없음')} · ${d.exif?'EXIF 날짜':'파일 날짜'}${d.gps?' · GPS':''}</small></div></div>`)}catch(e){bad++;last.insertAdjacentHTML('beforeend',`<p class="note" style="color:#c0392b">${I('alert')} ${esc(f.name)} — ${esc(err(e))}</p>`)}}
-aiS.textContent=bad?`${bad}장 실패`:'AI 연결됨 ✓';fi.value='';delete fi.dataset.busy;lab.style.opacity='';lab.style.pointerEvents=''};
+aiS.textContent=bad?`${bad}장 실패`:'';fi.value='';delete fi.dataset.busy;lab.style.opacity='';lab.style.pointerEvents=''};
 let busy=0;async function run(){if(busy)return;busy=1;ag.style.opacity=.5;try{await run_()}finally{busy=0;ag.style.opacity=''}}
 async function run_(){if(!sm){ao.innerHTML='<p class="note">'+I('alert')+' '+err({code:'network'})+'</p>';return}
 ao.innerHTML='<p class="note">AI가 기억을 더듬는 중…</p>';
