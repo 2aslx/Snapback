@@ -117,6 +117,10 @@ class SnapbackState extends ChangeNotifier {
   static const _onboardedKey = 'snapback_onboarded';
   static const _queueKey = 'snapback_queue';
   static const _removedKey = 'snapback_removed';
+  static const _albumPlansKey = 'snapback_album_plans';
+
+  /// 앨범 요청 문장 → 서버가 해석한 조건. 같은 요청은 같은 조건으로 다시 찾아 결과가 매번 같게 한다.
+  final Map<String, Map<String, dynamic>> _albumPlans = {};
 
   /// 사용자가 앱에서 지운 사진 (fileKey 또는 데모 사진 'seed:id').
   /// 다시 분석 대기열에 넣지 않고, 다음 실행 때도 목록에서 빼 둔다. 사진 앱 원본은 건드리지 않는다.
@@ -131,6 +135,7 @@ class SnapbackState extends ChangeNotifier {
 
   int screen = 0;
   bool serverConnected = false;
+
   /// 서버·AI 문제가 있을 때만 경고 문구 (정상이면 빈 문자열 → 화면에 표시 안 함)
   String aiStatusText = '';
 
@@ -171,13 +176,18 @@ class SnapbackState extends ChangeNotifier {
             : [?_allPath];
         for (final p in paths) {
           final n = await p.assetCountAsync;
-          final list = await p.getAssetListRange(start: 0, end: math.min(n, 3000));
+          final list = await p.getAssetListRange(
+            start: 0,
+            end: math.min(n, 3000),
+          );
           years.addAll(list.map((a) => a.createDateTime.year));
         }
         if (scopeSelection == 3) years.removeWhere((y) => y < 2022);
       }
     } catch (_) {}
-    availableYears = (years.toList()..sort((a, b) => b - a)).map((y) => '$y').toList();
+    availableYears = (years.toList()..sort((a, b) => b - a))
+        .map((y) => '$y')
+        .toList();
     if (availableYears.isNotEmpty && !availableYears.contains(priorityYear)) {
       priorityYear = availableYears.first;
     }
@@ -282,6 +292,14 @@ class SnapbackState extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(FoundMemory.fromJson)
             .toList();
+      } catch (_) {}
+    }
+    final rawPlans = prefs.getString(_albumPlansKey);
+    if (rawPlans != null && rawPlans.isNotEmpty) {
+      try {
+        (jsonDecode(rawPlans) as Map).forEach((k, v) {
+          if (v is Map<String, dynamic>) _albumPlans['$k'] = v;
+        });
       } catch (_) {}
     }
     final rawPlaces = prefs.getString(_placeNamesKey);
@@ -422,6 +440,7 @@ class SnapbackState extends ChangeNotifier {
     found = [];
     placeNames.clear();
     _placeAsked.clear();
+    _albumPlans.clear();
     removedKeys.clear();
     pickQueue.clear();
     pickedAssetIds.clear();
@@ -449,8 +468,16 @@ class SnapbackState extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       for (final k in [
-        _dbKey, _albumsKey, _categoriesKey, _recordsKey, _foundKey,
-        _placeNamesKey, _queueKey, _removedKey, _onboardedKey,
+        _dbKey,
+        _albumsKey,
+        _categoriesKey,
+        _recordsKey,
+        _foundKey,
+        _placeNamesKey,
+        _queueKey,
+        _removedKey,
+        _onboardedKey,
+        _albumPlansKey,
       ]) {
         await prefs.remove(k);
       }
@@ -498,11 +525,16 @@ class SnapbackState extends ChangeNotifier {
     _saveTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
-      final json = jsonEncode(db.where((d) => d.id > 11).map((d) => d.toJson()).toList());
+      final json = jsonEncode(
+        db.where((d) => d.id > 11).map((d) => d.toJson()).toList(),
+      );
       // 웹: localStorage 는 약 5MB 라 사진이 많으면 저장이 조용히 실패한다 → IndexedDB 에 저장
       if (kIsWeb &&
           PreviewStore.enabled &&
-          await PreviewStore.put(_webDbKey, Uint8List.fromList(utf8.encode(json)))) {
+          await PreviewStore.put(
+            _webDbKey,
+            Uint8List.fromList(utf8.encode(json)),
+          )) {
         await prefs.remove(_dbKey); // localStorage 비워 앨범·기록 저장 공간 확보
         return;
       }
@@ -569,7 +601,8 @@ class SnapbackState extends ChangeNotifier {
   Future<void> _runAddressJob() async {
     var changed = 0;
     while (serverConnected) {
-      final d = visiblePhotos.where((x) => x.gps != null && _cachedPlace(x) == null)
+      final d = visiblePhotos
+          .where((x) => x.gps != null && _cachedPlace(x) == null)
           .where((x) => !_placeAsked.contains(_placeKey(x)))
           .firstOrNull;
       if (d == null) break;
@@ -743,14 +776,17 @@ class SnapbackState extends ChangeNotifier {
 
   /// 같은 날 · 가까운 곳(1.5km)에서 찍은 사진을 '연결된 사진'으로
   List<int> _linkedFor(PhotoItem p) {
-    final list = visiblePhotos
-        .where(
-          (x) =>
-              x.id != p.id &&
-              (x.date == p.date || _distanceKm(p.gps, x.gps) < 1.5),
-        )
-        .toList()
-      ..sort((a, b) => (a.takenAtMs ?? a.id).compareTo(b.takenAtMs ?? b.id));
+    final list =
+        visiblePhotos
+            .where(
+              (x) =>
+                  x.id != p.id &&
+                  (x.date == p.date || _distanceKm(p.gps, x.gps) < 1.5),
+            )
+            .toList()
+          ..sort(
+            (a, b) => (a.takenAtMs ?? a.id).compareTo(b.takenAtMs ?? b.id),
+          );
     return list.take(12).map((x) => x.id).toList();
   }
 
@@ -836,10 +872,15 @@ class SnapbackState extends ChangeNotifier {
     final photos = visiblePhotos.toList();
     if (photos.isEmpty) return null;
     final now = DateTime.now();
-    final md = '-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final md =
+        '-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final byId = {for (final d in photos) d.id: d};
     final tiers = <List<PhotoItem>>[
-      photos.where((d) => d.date.endsWith(md) && !d.date.startsWith('${now.year}')).toList(),
+      photos
+          .where(
+            (d) => d.date.endsWith(md) && !d.date.startsWith('${now.year}'),
+          )
+          .toList(),
       [for (final r in records) ?byId[r.photoId]],
       [for (final f in found) ?byId[f.id]],
       photos.where((d) => d.place.isNotEmpty && d.place != '알 수 없음').toList(),
@@ -902,6 +943,7 @@ class SnapbackState extends ChangeNotifier {
   /// 홈 검색창([origin] 위치)에서 검색 화면으로: 창이 그 자리에서 내려오도록 위치를 넘긴다.
   /// 새 검색: 이전 검색어·결과·질문을 모두 비운다 (홈·기억 탭에서 검색을 새로 열 때)
   int _searchRunId = 0;
+
   /// 검색 결과에서 '다른 후보'를 눌러 크게 올려 둔 사진 (맞아요로 확인할 대상). null 이면 1순위
   int? pinnedResultId;
 
@@ -1185,7 +1227,9 @@ class SnapbackState extends ChangeNotifier {
     if (!analysisFinished) return;
     final done = {for (final d in db) d.fileKey, ...removedKeys};
     pickQueue.removeWhere(
-      (e) => (done.contains(e.key) || _failedKeys.contains(e.key)) && !_inFlight.contains(e.key),
+      (e) =>
+          (done.contains(e.key) || _failedKeys.contains(e.key)) &&
+          !_inFlight.contains(e.key),
     );
     _failedKeys.clear();
     analysisFailed = 0;
@@ -1206,10 +1250,19 @@ class SnapbackState extends ChangeNotifier {
   /// '직접 고르기'에서 고른 사진을 대기열에 넣고 (홈 ＋로 왔으면 바로 분석 시작) 돌아간다.
   void confirmPickedAssets() {
     prepareNewBatch();
-    final chosen = pickerAssets.where((a) => pickedAssetIds.contains(a.id)).toList();
+    final chosen = pickerAssets
+        .where((a) => pickedAssetIds.contains(a.id))
+        .toList();
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
-    final already = chosen.where((a) => analyzed.contains('asset:${a.id}')).length;
-    pickNotice = _skipNotice(chosen.length, chosen.length - already, already, 0);
+    final already = chosen
+        .where((a) => analyzed.contains('asset:${a.id}'))
+        .length;
+    pickNotice = _skipNotice(
+      chosen.length,
+      chosen.length - already,
+      already,
+      0,
+    );
     _enqueueAssets(chosen);
     pickedAssetIds.clear();
     if (_startAfterPick) {
@@ -1256,7 +1309,9 @@ class SnapbackState extends ChangeNotifier {
     // 이미 분석한 사진은 빼고 상한만큼 담는다 (분석한 사진이 자리를 차지하지 않게)
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
     _enqueueAssets(
-      list.where((a) => !analyzed.contains('asset:${a.id}')).take(kMaxLibraryQueue),
+      list
+          .where((a) => !analyzed.contains('asset:${a.id}'))
+          .take(kMaxLibraryQueue),
     );
     notifyListeners();
     return pickQueue.length;
@@ -1336,7 +1391,8 @@ class SnapbackState extends ChangeNotifier {
     // 지난 분석이 끝났으면 새 묶음: 끝난 사진(분석됨·지움·실패)을 대기열에서 빼고 이번에 올린 사진만 센다
     if (newBatch) {
       pickQueue.removeWhere(
-        (e) => (analyzed.contains(e.key) || _failedKeys.contains(e.key)) &&
+        (e) =>
+            (analyzed.contains(e.key) || _failedKeys.contains(e.key)) &&
             !_inFlight.contains(e.key),
       );
       _failedKeys.clear();
@@ -1401,8 +1457,7 @@ class SnapbackState extends ChangeNotifier {
     }
 
     await Future.wait([
-      for (var w = 0; w < math.min(_concurrency, pending.length); w++)
-        worker(),
+      for (var w = 0; w < math.min(_concurrency, pending.length); w++) worker(),
     ]);
 
     if (myRun != _runId || analysisPaused) {
@@ -1454,7 +1509,10 @@ class SnapbackState extends ChangeNotifier {
       String? previewKey;
       if (processed.previewBytes != null && PreviewStore.enabled) {
         // 저장에 실패하면(사생활 보호 모드 등) 미리보기 없이 작은 썸네일로 보여 준다
-        if (await PreviewStore.put('pv:${entry.key}', processed.previewBytes!)) {
+        if (await PreviewStore.put(
+          'pv:${entry.key}',
+          processed.previewBytes!,
+        )) {
           previewKey = 'pv:${entry.key}';
         }
       }
@@ -1611,7 +1669,10 @@ class SnapbackState extends ChangeNotifier {
   /// 진행 표시(하단 카드·잠금화면)를 다시 분석 쪽으로 보여줄지: 다시 분석 중이거나 방금 끝났고, 일반 분석은 쉬는 중
   bool get relabelActiveForProgress =>
       relabelRunning ||
-      (relabelFinished && !analysisRunning && !analysisPaused && pickQueue.isEmpty);
+      (relabelFinished &&
+          !analysisRunning &&
+          !analysisPaused &&
+          pickQueue.isEmpty);
 
   // ── 사진 상세 > 이 사진만 다시 분석하기 (고해상도 정밀 분석) ────────────
   /// 지금 다시 분석 중인 사진 id
@@ -1636,7 +1697,10 @@ class SnapbackState extends ChangeNotifier {
       if (url == null) {
         reanalyzeError = '원본 사진을 찾을 수 없어 다시 분석할 수 없어요';
       } else {
-        final ai = await api.analyzeImage(url, detail: hi != null ? 'high' : 'low');
+        final ai = await api.analyzeImage(
+          url,
+          detail: hi != null ? 'high' : 'low',
+        );
         final i = db.indexWhere((x) => x.id == id);
         if (i >= 0) {
           db[i] = db[i].withAnalysis(ai);
@@ -1662,8 +1726,8 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// 새 AI 분석으로 설명만 바꾼 사진 (나머지 필드는 그대로)
-  PhotoItem _relabeled(PhotoItem d, Map<String, dynamic> ai) => d.withAnalysis(ai);
-
+  PhotoItem _relabeled(PhotoItem d, Map<String, dynamic> ai) =>
+      d.withAnalysis(ai);
 
   void togglePauseAnalysis() {
     analysisPaused = !analysisPaused;
@@ -1781,6 +1845,17 @@ class SnapbackState extends ChangeNotifier {
   }
 
   /// AI 대화형 앨범: 요청을 보내 후보를 받고 미리보기(17)로 이동. 바로 저장하지 않는다.
+  void _rememberAlbumPlan(String key, Map<String, dynamic> plan) {
+    _albumPlans.remove(key); // 최근에 쓴 요청을 뒤로 (오래된 것부터 정리)
+    _albumPlans[key] = plan;
+    while (_albumPlans.length > 50) {
+      _albumPlans.remove(_albumPlans.keys.first);
+    }
+    SharedPreferences.getInstance()
+        .then((p) => p.setString(_albumPlansKey, jsonEncode(_albumPlans)))
+        .ignore();
+  }
+
   Future<void> composeAlbum(String request) async {
     final q = request.trim();
     if (q.isEmpty || albumBusy) return;
@@ -1795,10 +1870,12 @@ class SnapbackState extends ChangeNotifier {
     try {
       // 위치로 찾을 수 있게 주소를 잠깐(최대 8초) 더 받아 두고 보낸다
       await prefetchAddresses(wait: const Duration(seconds: 8));
-      final (title, ids, category, reason) = await api.composeAlbum(
+      final planKey = q.replaceAll(RegExp(r'\s+'), ' ');
+      final (title, ids, category, reason, plan) = await api.composeAlbum(
         visiblePhotos,
         q,
         addr: addressById,
+        plan: _albumPlans[planKey],
         categories: [
           for (final c in allCategories)
             {
@@ -1808,6 +1885,7 @@ class SnapbackState extends ChangeNotifier {
             },
         ],
       );
+      if (plan != null) _rememberAlbumPlan(planKey, plan);
       final byId = {for (final d in db) d.id: d};
       final valid = ids.where(byId.containsKey).toList();
       if (valid.isEmpty) {
@@ -1844,8 +1922,15 @@ class SnapbackState extends ChangeNotifier {
 
   /// 관련된 추억(그날의 사진 · 비슷한 분위기)의 사진들로 앨범 초안을 만들어 미리보기로.
   /// 기준 사진도 맨 앞에 함께 넣는다.
-  void draftAlbumFromRelated(String title, PhotoItem base, List<PhotoItem> photos) {
-    final ids = [base.id, ...photos.map((p) => p.id).where((id) => id != base.id)];
+  void draftAlbumFromRelated(
+    String title,
+    PhotoItem base,
+    List<PhotoItem> photos,
+  ) {
+    final ids = [
+      base.id,
+      ...photos.map((p) => p.id).where((id) => id != base.id),
+    ];
     albumDraft = AlbumSuggestion(
       title: title,
       emoji: base.emoji,
@@ -1862,7 +1947,8 @@ class SnapbackState extends ChangeNotifier {
   bool albumSuggestionsLoading = false;
 
   Future<void> loadAlbumSuggestions() async {
-    final photos = visiblePhotos.toList()..sort((a, b) => b.date.compareTo(a.date));
+    final photos = visiblePhotos.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
     if (!serverConnected || photos.isEmpty || albumSuggestionsLoading) return;
     albumSuggestionsLoading = true;
     notifyListeners();
@@ -1913,10 +1999,17 @@ class SnapbackState extends ChangeNotifier {
   void confirmAlbumDraft(String title) {
     final d = albumDraft;
     if (d == null) return;
-    final kept = d.photoIds.where((id) => !albumDraftSelected.contains(id)).toList();
+    final kept = d.photoIds
+        .where((id) => !albumDraftSelected.contains(id))
+        .toList();
     if (kept.isEmpty) return;
     createAlbumFromSuggestion(
-      AlbumSuggestion(title: d.title, emoji: d.emoji, photoIds: kept, category: d.category),
+      AlbumSuggestion(
+        title: d.title,
+        emoji: d.emoji,
+        photoIds: kept,
+        category: d.category,
+      ),
       title,
     );
     albumDraft = null;
@@ -2108,19 +2201,41 @@ class SnapbackState extends ChangeNotifier {
 
   // 비교에서 빼는 너무 흔한 말 (날씨·시간대·실내/실외 등은 '비슷함'의 근거로 약함)
   static const _genericWords = {
-    '실내', '실외', '야외', '배경', '조명', '사진', '이미지', '모습', '장면',
-    '낮', '밤', '저녁', '아침', '오후', '맑음', '흐림', '비', '눈',
+    '실내',
+    '실외',
+    '야외',
+    '배경',
+    '조명',
+    '사진',
+    '이미지',
+    '모습',
+    '장면',
+    '낮',
+    '밤',
+    '저녁',
+    '아침',
+    '오후',
+    '맑음',
+    '흐림',
+    '비',
+    '눈',
   };
 
   /// 주제 비교용 키워드: AI 검색 키워드 · 카테고리 · 음식 · 장소
-  static Set<String> topicTokens(PhotoItem d) => {
-        ...d.searchKeywords,
-        ...d.semanticCategory,
-        ...d.food,
-        ...d.place.split(RegExp(r'[()\s·,]+')),
-      }
+  static Set<String> topicTokens(PhotoItem d) =>
+      {
+            ...d.searchKeywords,
+            ...d.semanticCategory,
+            ...d.food,
+            ...d.place.split(RegExp(r'[()\s·,]+')),
+          }
           .map((x) => x.trim())
-          .where((x) => x.length >= 2 && !_genericWords.contains(x) && !isUnknownInfo(x))
+          .where(
+            (x) =>
+                x.length >= 2 &&
+                !_genericWords.contains(x) &&
+                !isUnknownInfo(x),
+          )
           .toSet();
 
   /// 최소한 카테고리나 키워드 하나는 같아야 '비슷한 사진'으로 본다

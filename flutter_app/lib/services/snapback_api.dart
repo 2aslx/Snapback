@@ -124,7 +124,13 @@ class SnapbackApi {
     String imageDataUrl, {
     String detail = 'low',
   }) async {
-    const retry = {'rate_limited', 'openai_429', 'openai_500', 'openai_503', 'timeout'};
+    const retry = {
+      'rate_limited',
+      'openai_429',
+      'openai_500',
+      'openai_503',
+      'timeout',
+    };
     for (var attempt = 0; ; attempt++) {
       try {
         return await _post('/api/analyze', {
@@ -144,10 +150,7 @@ class SnapbackApi {
     Map<int, String> addr,
   ) => [
     for (final d in db)
-      {
-        ...d.toJson(includeThumb: false)..remove('gps'),
-        'addr': ?addr[d.id],
-      },
+      {...d.toJson(includeThumb: false)..remove('gps'), 'addr': ?addr[d.id]},
   ];
 
   /// [wantQuestion] — '질문 한 번 더하기': 서버가 후보를 가를 질문을 반드시 하나 만든다.
@@ -175,17 +178,21 @@ class SnapbackApi {
     return SearchResponse(ranked: ranked, question: question);
   }
 
-  /// AI 대화형 앨범: 자연어 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null, 못 찾은 이유)
-  Future<(String, List<int>, String?, String)> composeAlbum(
+  /// AI 대화형 앨범: 자연어 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null, 못 찾은 이유, 해석한 조건)
+  /// [plan] 같은 요청으로 전에 받은 조건. 보내면 서버가 다시 해석하지 않아 매번 같은 결과가 나온다.
+  Future<(String, List<int>, String?, String, Map<String, dynamic>?)>
+  composeAlbum(
     List<PhotoItem> db,
     String request, {
     List<Map<String, String>> categories = const [],
     Map<int, String> addr = const {},
+    Map<String, dynamic>? plan,
   }) async {
     final data = await _post('/api/album', {
       'db': aiDb(db, addr),
       'request': request,
       if (categories.isNotEmpty) 'categories': categories,
+      'plan': ?plan,
     });
     final ids = (data['ids'] as List? ?? const [])
         .whereType<num>()
@@ -197,6 +204,9 @@ class SnapbackApi {
       ids,
       cat is String && cat.isNotEmpty ? cat : null,
       (data['reason'] ?? '').toString(),
+      data['plan'] is Map<String, dynamic>
+          ? data['plan'] as Map<String, dynamic>
+          : null,
     );
   }
 
@@ -212,21 +222,18 @@ class SnapbackApi {
     PhotoItem photo, {
     String? image,
     String? location,
-  }) =>
-      _post('/api/record', {
-        'photo': photo.toJson(includeThumb: false),
-        'image': ?image,
-        if (location != null && location.isNotEmpty) 'location': location,
-      });
+  }) => _post('/api/record', {
+    'photo': photo.toJson(includeThumb: false),
+    'image': ?image,
+    if (location != null && location.isNotEmpty) 'location': location,
+  });
 
   /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)
   Future<List<String>> suggestAlbums(
     List<PhotoItem> db, {
     Map<int, String> addr = const {},
   }) async {
-    final data = await _post('/api/suggest', {
-      'db': aiDb(db, addr),
-    });
+    final data = await _post('/api/suggest', {'db': aiDb(db, addr)});
     return ((data['suggestions'] as List?) ?? const [])
         .map((e) => '$e'.trim())
         .where((e) => e.isNotEmpty)
