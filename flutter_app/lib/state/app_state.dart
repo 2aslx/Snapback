@@ -1030,9 +1030,22 @@ class SnapbackState extends ChangeNotifier {
     }
   }
 
+  String _skipNotice(int picked, int added, int already, int dup) {
+    if (already == 0 && dup == 0) return '';
+    return [
+      '고른 사진 $picked장 중 $added장을 분석해요',
+      if (already > 0) '이미 분석한 사진 $already장은 건너뛰었어요',
+      if (dup > 0) '이미 대기 중인 사진 $dup장은 한 번만 분석해요',
+    ].join(' · ');
+  }
+
   /// '직접 고르기'에서 고른 사진을 대기열에 넣고 (홈 ＋로 왔으면 바로 분석 시작) 돌아간다.
   void confirmPickedAssets() {
-    _enqueueAssets(pickerAssets.where((a) => pickedAssetIds.contains(a.id)));
+    final chosen = pickerAssets.where((a) => pickedAssetIds.contains(a.id)).toList();
+    final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
+    final already = chosen.where((a) => analyzed.contains('asset:${a.id}')).length;
+    pickNotice = _skipNotice(chosen.length, chosen.length - already, already, 0);
+    _enqueueAssets(chosen);
     pickedAssetIds.clear();
     if (_startAfterPick) {
       _startAfterPick = false;
@@ -1109,18 +1122,31 @@ class SnapbackState extends ChangeNotifier {
     }
     final files = await _picker.pickMultiImage();
     if (files.isEmpty) return 0;
+    // 분석이 끝난 묶음이면 먼저 비워서, 이번에 올린 사진만 세게 한다
+    if (analysisFinished) {
+      final done = {for (final d in db) d.fileKey, ...removedKeys};
+      pickQueue.removeWhere((e) => done.contains(e.key) || _failedKeys.contains(e.key));
+      _failedKeys.clear();
+      analysisFinished = false;
+    }
     final seen = pickQueue.map((e) => e.key).toSet();
-    var added = 0;
+    final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
+    var added = 0, already = 0, dup = 0;
     for (final f in files) {
       final len = await f.length();
       final mod = await f.lastModified();
       final k = '${f.name}$len${mod.millisecondsSinceEpoch}';
-      if (!seen.contains(k)) {
+      if (analyzed.contains(k)) {
+        already++;
+      } else if (seen.contains(k)) {
+        dup++;
+      } else {
         pickQueue.add(PickedFileEntry(file: f, key: k, modified: mod));
         seen.add(k);
         added++;
       }
     }
+    pickNotice = _skipNotice(files.length, added, already, dup);
     notifyListeners();
     if (startImmediately) {
       startAnalysis();
@@ -1130,21 +1156,36 @@ class SnapbackState extends ChangeNotifier {
 
   Future<void> startAnalysis() async {
     final myRun = ++_runId;
+    // 지난 분석이 끝난 뒤의 시작이면 새 묶음 (일시정지 후 이어하기는 같은 묶음)
+    final newBatch = analysisFinished || analysisTotal == 0;
     analysisPaused = false;
     analysisRunning = true;
     analysisFinished = false;
 
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
+    // 지난 분석이 끝났으면 새 묶음: 끝난 사진(분석됨·지움·실패)을 대기열에서 빼고 이번에 올린 사진만 센다
+    if (newBatch) {
+      pickQueue.removeWhere(
+        (e) => (analyzed.contains(e.key) || _failedKeys.contains(e.key)) &&
+            !_inFlight.contains(e.key),
+      );
+      _failedKeys.clear();
+    }
+    analysisFinished = false;
     final pending = pickQueue
-        .where((p) => !analyzed.contains(p.key) && !_inFlight.contains(p.key))
+        .where(
+          (p) =>
+              !analyzed.contains(p.key) &&
+              !_inFlight.contains(p.key) &&
+              !_failedKeys.contains(p.key),
+        )
         .toList();
 
     pending.sort((a, b) => compareForOrder(a.modified, b.modified));
 
     analysisTotal = pickQueue.length;
-    analysisDone = analysisTotal - pending.length;
+    _recountDone();
     _saveQueue();
-    if (pending.isNotEmpty) analysisFailed = 0; // 새로 분석을 시작하면 실패 수를 다시 센다
     etaMs = 0;
     currentFileDate = pending.isNotEmpty ? pending.first.modified : null;
     if (pending.isEmpty && analysisTotal > 0) {
@@ -1173,8 +1214,11 @@ class SnapbackState extends ChangeNotifier {
         currentFileDate = entry.modified;
         notifyListeners();
         await _analyzeOne(entry);
-        if (myRun != _runId) return; // 그사이 새 분석이 시작됨
-        analysisDone++;
+        _recountDone(); // 완료 수는 실제 상태(분석됨·실패)로 다시 센다
+        if (myRun != _runId) {
+          notifyListeners();
+          return; // 그사이 새 분석이 시작됨
+        }
         processedCount++;
         final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
         final remaining = analysisTotal - analysisDone;
@@ -1209,6 +1253,19 @@ class SnapbackState extends ChangeNotifier {
   /// 사진 1장: 줄이기 → AI 분석 → DB 저장 (실패하면 기록만 남기고 넘어감)
   /// 이번 분석에서 실패한 사진 수 (형식을 읽을 수 없음·서버 오류 등). 하단 진행 카드와 홈 알림에 표시
   int analysisFailed = 0;
+  final Set<String> _failedKeys = {};
+
+  /// 사진을 고를 때 건너뛴 이유 안내 (예: 이미 분석한 사진)
+  String pickNotice = '';
+
+  /// 이번 묶음에서 끝난 사진 수 = 분석됨·지움·실패
+  void _recountDone() {
+    final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
+    analysisDone = pickQueue
+        .where((e) => analyzed.contains(e.key) || _failedKeys.contains(e.key))
+        .length;
+    analysisFailed = _failedKeys.length;
+  }
 
   /// 지금 분석 요청 중인 사진 (일시정지 후 바로 다시 시작해도 같은 사진을 두 번 보내지 않게)
   final Set<String> _inFlight = {};
@@ -1268,7 +1325,8 @@ class SnapbackState extends ChangeNotifier {
         ),
       );
     } on ApiException catch (e) {
-      analysisFailed++;
+      _failedKeys.add(entry.key);
+      analysisFailed = _failedKeys.length;
       aiStatusText = e.userMessage;
       analysisLogs.insert(
         0,
@@ -1278,7 +1336,8 @@ class SnapbackState extends ChangeNotifier {
         ),
       );
     } catch (e) {
-      analysisFailed++;
+      _failedKeys.add(entry.key);
+      analysisFailed = _failedKeys.length;
       analysisLogs.insert(
         0,
         AnalysisLogEntry(isError: true, text: '⚠️ ${entry.label} — 오류 ($e)'),
@@ -1293,6 +1352,9 @@ class SnapbackState extends ChangeNotifier {
     _runId++; // 돌고 있는 분석 루프 중단 (요청 중인 1장은 끝나면 저장만 됨)
     pickQueue.clear();
     pickedAssetIds.clear();
+    _failedKeys.clear();
+    analysisFailed = 0;
+    pickNotice = '';
     analysisRunning = false;
     analysisPaused = false;
     analysisFinished = false;

@@ -146,6 +146,12 @@ class _Screen5HomeState extends State<Screen5Home>
               ),
             ),
           ),
+        // 사진을 고를 때 건너뛴 사진 안내 (이미 분석한 사진 등)
+        if (s.pickNotice.isNotEmpty && (s.analysisRunning || s.analysisPaused))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SnapNote(s.pickNotice, icon: 'alert', top: 0),
+          ),
         // 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
         GestureDetector(
           onTap: () => _openSearch(s),
