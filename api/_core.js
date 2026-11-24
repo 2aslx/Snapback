@@ -270,20 +270,31 @@ const albumParsePrompt = (request, cats) => {
   '[규칙]\n' +
   '- place.terms: 요청의 장소를 사진 주소(시·구·동 행정 주소)에 나올 이름으로 펼친다. 생활권 지명은 그 지역의 행정동 이름들로 펼치고 원래 지명도 넣는다. 확실한 이름만 넣고, 구 이름은 그 지명이 확실히 속한 구일 때만 넣는다.\n' +
   '- time: "올여름·작년·10월·이번 달·최근" 같은 시간 표현은 오늘 기준 날짜 범위(from·to, YYYY-MM-DD)로 바꾼다. 여름=6~8월, 봄=3~5월, 가을=9~11월, 겨울=12~2월.\n' +
-  '- topic: 무엇을 찍은 사진인지(먹은 것·음식·맛집·디저트 → "음식이 보이는 사진", 풍경·바다 → "풍경이 주제인 사진" 등). exclude: "~은 빼고" 조건.\n' +
-  '- 요청에 없는 조건은 null 또는 has=false.\n' +
+  '- topic: 무엇을 찍은 사진인지. 요청의 구체적인 대상을 그대로 살리고 넓히지 않는다(예: "패스트푸드" → "햄버거·감자튀김 같은 패스트푸드가 보이는 사진"). ' +
+  '"먹은 것·음식"처럼 요청 자체가 넓으면 "음식이 보이는 사진"으로 쓰고 topic_broad=true.\n' +
+  '- topic_terms: topic 에 해당하는 구체적인 물건·음식·장소 이름 8~20개. 사진 정보(음식 이름·키워드·캡션)에 그대로 나올 법한 낱말로 쓴다.\n' +
+  '- exclude: "~은 빼고" 조건, exclude_terms 는 그 대상의 이름들. 요청에 없는 조건은 null·빈 배열·has=false.\n' +
   '[예시]\n' +
-  '요청 "작년 여름 신촌에서 먹은 음식" → {"title":"작년 여름 신촌 맛집","place":{"has":true,"terms":["신촌","창천동","신촌동","대현동","대신동","노고산동"]},"time":{"from":"' + (y - 1) + '-06-01","to":"' + (y - 1) + '-08-31"},"topic":"음식이 보이는 사진","exclude":null,"category":"memories"}\n' +
-  '요청 "올여름 먹은 것들" → {"title":"올여름 먹은 것들","place":{"has":false,"terms":[]},"time":{"from":"' + y + '-06-01","to":"' + y + '-08-31"},"topic":"음식이 보이는 사진","exclude":null,"category":"memories"}\n' +
-  '요청 "홍대에서 찍은 사진 중 음식은 빼고" → {"title":"홍대의 순간들","place":{"has":true,"terms":["홍대","서교동","동교동","합정동","연남동"]},"time":{"from":null,"to":null},"topic":null,"exclude":"음식이 주제인 사진","category":"memories"}\n' +
+  '요청 "작년 여름 신촌에서 먹은 음식" → {"title":"작년 여름 신촌 맛집","place":{"has":true,"terms":["신촌","창천동","신촌동","대현동","대신동","노고산동"]},"time":{"from":"' + (y - 1) + '-06-01","to":"' + (y - 1) + '-08-31"},"topic":"음식이 보이는 사진","topic_broad":true,"topic_terms":[],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+  '요청 "패스트푸드 사진" → {"title":"패스트푸드 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"topic":"햄버거·감자튀김 같은 패스트푸드가 보이는 사진","topic_broad":false,"topic_terms":["햄버거","버거","감자튀김","치킨너겟","너겟","피자","핫도그","프라이드치킨"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+  '요청 "고기 먹은 사진" → {"title":"고기 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"topic":"고기 요리가 보이는 사진","topic_broad":false,"topic_terms":["고기","삼겹살","목살","스테이크","갈비","불고기","닭갈비","치킨","보쌈","족발","햄버거"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+  '요청 "바다 사진" → {"title":"바다","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"topic":"바다가 보이는 사진","topic_broad":false,"topic_terms":["바다","해변","해수욕장","파도","해안","바닷가","모래사장"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+  '요청 "홍대에서 찍은 사진 중 음식은 빼고" → {"title":"홍대의 순간들","place":{"has":true,"terms":["홍대","서교동","동교동","합정동","연남동"]},"time":{"from":null,"to":null},"topic":null,"topic_broad":false,"topic_terms":[],"exclude":"음식이 주제인 사진","exclude_terms":[],"category":"memories"}\n' +
   '카테고리(category 는 이 중 id 하나):' + JSON.stringify(cats) + '\n요청:' + JSON.stringify(request) + '\nJSON:';
 };
 
+// 주제는 엄격하게: 사진마다 관련도 점수(0~100)와 사진 속 근거를 받는다
+const ALBUM_STRICT_SCORE = 85;
 const albumPickPrompt = (db, topic, exclude) =>
-  '아래 사진 DB 에서 조건에 맞는 사진 id 를 모두 골라 JSON만 출력하라.\n' +
-  (topic ? '- 포함 조건: ' + topic + ' (food·kw·cat·caption·summary·type 를 함께 본다. 예: 음식 사진은 food 가 있거나 음식·디저트·음료가 주제인 사진)\n' : '') +
-  (exclude ? '- 제외 조건: ' + exclude + ' (해당하면 반드시 뺀다)\n' : '') +
-  'DB:' + JSON.stringify(db) + '\n{"ids":[숫자들]}';
+  '아래 사진 DB 의 각 사진이 앨범 조건에 얼마나 맞는지 엄격하게 판정해 JSON만 출력하라.\n' +
+  (topic ? '- 포함 조건: ' + topic + '\n' : '') +
+  (exclude ? '- 제외 조건: ' + exclude + ' (해당하면 excluded=true)\n' : '') +
+  '[판정 기준]\n' +
+  '- score 는 조건의 구체적인 대상이 사진에 실제로 보이는 정도(0~100). food·kw·cat·caption·summary·place·type 에 그 대상이 직접 나와야 높은 점수다.\n' +
+  '- 그 대상에 일반적으로 속하는 것은 맞는 것으로 본다. 넓은 범주만 같은 것은 낮은 점수다(예: 조건이 "패스트푸드"인데 파스타·케이크면 30 이하, 음식이 없는 사진은 0).\n' +
+  '- evidence 에는 점수의 근거가 된 사진 정보 속 단어를 그대로 적는다(예: "food: 햄버거"). 근거가 없으면 빈 문자열.\n' +
+  'DB:' + JSON.stringify(db) + '\n' +
+  '{"checks":[{"id":사진 id,"score":0-100,"evidence":"근거","excluded":false}]}';
 
 async function album(b) {
   const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
@@ -325,9 +336,27 @@ async function album(b) {
   const exclude = typeof q.exclude === 'string' && q.exclude.trim() ? q.exclude.trim().slice(0, 100) : null;
   let ids = cand.map(d => Number(d.id));
   if (topic || exclude) {
+    const terms = list => (Array.isArray(list) ? list : []).map(t => String(t).trim()).filter(Boolean).slice(0, 30);
+    const topicTerms = terms(q.topic_terms);
+    const excludeTerms = terms(q.exclude_terms);
+    // '먹은 것들'처럼 대상이 없는 넓은 요청일 때만 음식 사진 전체 (구체적인 이름 목록이 있으면 그 이름으로만)
+    const broadFood = q.topic_broad === true && topicTerms.length === 0 && /음식|먹/.test(topic || '');
+    // 사진 정보(음식·키워드·카테고리·캡션·요약·주제·장소)에 그 이름이 실제로 있으면 확실히 맞음
+    const fields = d => [...(d.food || []), ...(d.kw || []), ...(d.cat || []), d.caption, d.summary, d.topic, d.place]
+      .filter(v => typeof v === 'string').join(' ');
+    const has = (d, list) => list.length > 0 && list.some(t => fields(d).includes(t));
+    const sure = new Set(cand.filter(d => (broadFood && (d.food || []).length > 0) || has(d, topicTerms)).map(d => Number(d.id)));
     const r = await ask([{ type: 'input_text', text: albumPickPrompt(cand, topic, exclude) }]);
-    const known = new Set(ids);
-    ids = [...new Set((Array.isArray(r.ids) ? r.ids : []).map(Number))].filter(id => known.has(id));
+    const checks = new Map((Array.isArray(r.checks) ? r.checks : []).filter(Boolean).map(c => [Number(c.id), c]));
+    ids = cand.filter(d => {
+      const id = Number(d.id), c = checks.get(id);
+      if (c?.excluded === true || has(d, excludeTerms)) return false;
+      if (exclude && /음식/.test(exclude) && (d.food || []).length > 0) return false;
+      if (!topic) return true;
+      if (sure.has(id)) return true;
+      // 이름이 없으면 AI 가 아주 확실하다고 본 경우(높은 점수 + 사진 속 근거)만 — 대충 관련된 사진은 빼기
+      return Boolean(c) && Number(c.score) >= ALBUM_STRICT_SCORE && String(c.evidence || '').trim().length > 0;
+    }).map(d => Number(d.id));
   }
   return [200, { title, ids, category, reason: ids.length ? '' : '조건에 맞는 사진을 찾지 못했어요.' }];
 }

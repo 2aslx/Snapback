@@ -1785,6 +1785,38 @@ class _Screen12SettingsState extends State<Screen12Settings> {
         if (s.aiStatusText.isNotEmpty) SnapNote(s.aiStatusText),
         // OpenStreetMap 이용 조건: 출처 표시
         const SnapNote('촬영 장소 주소: © OpenStreetMap 기여자'),
+        // 앱 초기화 (확인 팝업)
+        const SnapH3('초기화', small: true),
+        Pressable(
+          onTap: () async {
+            final ok = await showSnapConfirm(
+              context,
+              title: '앱을 초기화할까요?',
+              message:
+                  '분석한 사진 정보, 앨범, 기록, 찾은 사진이 모두 지워지고\n처음 화면으로 돌아가요.\n사진 앱의 원본 사진은 지워지지 않아요.',
+              confirmLabel: '초기화',
+            );
+            if (ok) await s.resetAll();
+          },
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 50),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFD93A2B)),
+            ),
+            child: const Text(
+              '앱 초기화',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFD93A2B),
+              ),
+            ),
+          ),
+        ),
+        const SnapNote('모든 분석 정보·앨범·기록을 지우고 처음부터 다시 시작해요'),
       ],
     );
   }

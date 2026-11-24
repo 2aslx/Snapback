@@ -406,6 +406,59 @@ class SnapbackState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 설정 > 앱 초기화: 앱이 저장한 모든 것(분석 정보·앨범·기록·찾은 사진·카테고리·주소 캐시 등)을 지우고
+  /// 처음 화면으로. 사진 앱의 원본 사진은 건드리지 않는다. 서버 주소 설정은 남긴다.
+  Future<void> resetAll() async {
+    _runId++; // 진행 중인 분석 중지
+    _relabelRun++;
+    _searchRunId++;
+    _liveActivity.cancel();
+    _saveTimer?.cancel();
+    db = [];
+    _nextId = 12;
+    albums = [];
+    customCategories = [];
+    records = [];
+    found = [];
+    placeNames.clear();
+    _placeAsked.clear();
+    removedKeys.clear();
+    pickQueue.clear();
+    pickedAssetIds.clear();
+    _failedKeys.clear();
+    analysisFailed = 0;
+    pickNotice = '';
+    analysisRunning = false;
+    analysisPaused = false;
+    analysisFinished = false;
+    analysisTotal = 0;
+    analysisDone = 0;
+    relabelRunning = false;
+    relabelFinished = false;
+    albumSuggestions = [];
+    albumDraft = null;
+    albumDraftSelected.clear();
+    recordDraft = null;
+    searchHistory.clear();
+    searchResults = [];
+    activeQuestion = null;
+    pinnedResultId = null;
+    albumFilter = null;
+    recordsView = 'default';
+    scopeReturn = 0;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final k in [
+        _dbKey, _albumsKey, _categoriesKey, _recordsKey, _foundKey,
+        _placeNamesKey, _queueKey, _removedKey, _onboardedKey,
+      ]) {
+        await prefs.remove(k);
+      }
+    } catch (_) {}
+    await PreviewStore.clear(); // 웹: 미리보기·DB
+    go(0);
+  }
+
   /// 앱에서 사진 지우기 (분석 정보·썸네일·앨범/기록/찾은 사진 연결만 삭제, 원본은 그대로)
   void removePhotos(Set<int> ids) {
     if (ids.isEmpty) return;

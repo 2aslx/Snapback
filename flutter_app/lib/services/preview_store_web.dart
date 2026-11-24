@@ -57,4 +57,15 @@ class PreviewStore {
       return null;
     }
   }
+
+  /// 초기화: 저장한 미리보기·DB 를 모두 지운다
+  static Future<void> clear() async {
+    _mem.clear();
+    try {
+      final db = await _open();
+      final tx = db.transaction(_storeName, idbModeReadWrite);
+      await tx.objectStore(_storeName).clear();
+      await tx.completed;
+    } catch (_) {}
+  }
 }
