@@ -58,6 +58,10 @@ class _SnapbackAppState extends State<SnapbackApp> {
   }
 }
 
+/// 하단 탭바의 바닥 여백: 홈 인디케이터가 있으면 그 영역에 조금 걸치게, 없으면 12
+double _tabBottom(double bottomInset) =>
+    bottomInset > 0 ? bottomInset - 10 : 12;
+
 class _SnapbackShell extends StatelessWidget {
   const _SnapbackShell({required this.state});
   final SnapbackState state;
@@ -185,14 +189,15 @@ class _SnapbackShell extends StatelessWidget {
                     Positioned(
                       left: 56,
                       right: 56,
-                      bottom: (bottomInset > 0 ? bottomInset : 20) + 4,
+                      // 홈 인디케이터 영역 쪽으로 조금 더 내림 (이전보다 14 아래)
+                      bottom: _tabBottom(bottomInset),
                       child: _BottomTabBar(state: state),
                     ),
                   if (showTabs && miniVisible)
                     Positioned(
                       left: 16,
                       right: 16,
-                      bottom: (bottomInset > 0 ? bottomInset : 20) + 76,
+                      bottom: _tabBottom(bottomInset) + 72,
                       child: _MiniProgressCard(state: state),
                     ),
                 ],

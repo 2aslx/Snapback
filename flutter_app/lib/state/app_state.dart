@@ -1000,6 +1000,21 @@ class SnapbackState extends ChangeNotifier {
     return pickQueue.length;
   }
 
+  /// 사진 접근 범위(화면 1)에서 '뒤로' 갈 화면: 처음 설정이면 시작 안내(0), 홈 ＋로 왔으면 홈(5)
+  int scopeReturn = 0;
+
+  /// 홈 ＋: iOS 는 사진 접근 범위 → (직접 고르기) → 분석 순서 → 분석 시작 흐름으로.
+  /// 웹은 사진 보관함이 없어 바로 파일 선택.
+  void openAddPhotos() {
+    if (!useLibrary) {
+      pickPhotosFromGallery(startImmediately: true);
+      return;
+    }
+    _startAfterPick = false;
+    scopeReturn = 5;
+    go(1);
+  }
+
   Future<int> pickPhotosFromGallery({bool startImmediately = false}) async {
     if (useLibrary) {
       // iOS: 사진 보관함 그리드에서 직접 고르기 (② 사진 직접 고르기)

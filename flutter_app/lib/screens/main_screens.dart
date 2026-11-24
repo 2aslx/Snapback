@@ -84,7 +84,7 @@ class _Screen5HomeState extends State<Screen5Home>
             actions: [
               TitleButton(
                 icon: 'plus',
-                onTap: () => s.pickPhotosFromGallery(startImmediately: true),
+                onTap: s.openAddPhotos,
               ),
               TitleButton(icon: 'gear', onTap: () => s.go(12)),
             ],

@@ -47,7 +47,13 @@ class Screen0Welcome extends StatelessWidget {
             ),
           ],
         ),
-        SnapButton(label: '시작하기', onTap: () => state.go(1)),
+        SnapButton(
+          label: '시작하기',
+          onTap: () {
+            state.scopeReturn = 0; // 처음 설정: 뒤로 → 시작 안내
+            state.go(1);
+          },
+        ),
       ],
     );
   }
@@ -77,7 +83,7 @@ class Screen1Scope extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(0)),
+        SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(s.scopeReturn)),
         const SnapH2('어떤 사진을\n허용할까요?'),
         SnapGroup(
           children: [
