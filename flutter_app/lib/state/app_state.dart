@@ -1358,6 +1358,7 @@ class SnapbackState extends ChangeNotifier {
           category: categoryById(category)?.id,
         );
         albumDraftSelected.clear();
+        albumDraftReturn = 11;
         screen = 17;
         seamlessSwitch = false;
       }
@@ -1369,6 +1370,24 @@ class SnapbackState extends ChangeNotifier {
       albumBusy = false;
       notifyListeners();
     }
+  }
+
+  /// 앨범 미리보기(17)에서 '뒤로' 갈 화면 (AI 앨범 = 앨범 탭, 관련된 추억 = 그 앨범 화면)
+  int albumDraftReturn = 11;
+
+  /// 관련된 추억(그날의 사진 · 비슷한 분위기)의 사진들로 앨범 초안을 만들어 미리보기로.
+  /// 기준 사진도 맨 앞에 함께 넣는다.
+  void draftAlbumFromRelated(String title, PhotoItem base, List<PhotoItem> photos) {
+    final ids = [base.id, ...photos.map((p) => p.id).where((id) => id != base.id)];
+    albumDraft = AlbumSuggestion(
+      title: title,
+      emoji: base.emoji,
+      photoIds: ids,
+      category: 'memories',
+    );
+    albumDraftSelected.clear();
+    albumDraftReturn = 18;
+    go(17);
   }
 
   void toggleDraftPhoto(int id) {

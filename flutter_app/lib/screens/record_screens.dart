@@ -80,8 +80,11 @@ class RelatedTile extends StatelessWidget {
 
 /// 흰 카드 안의 '아이콘 · 이름 · 값' 정보 줄들
 class InfoRows extends StatelessWidget {
-  const InfoRows({super.key, required this.rows});
+  const InfoRows({super.key, required this.rows, this.actions = const {}});
   final List<(String, String, String)> rows; // (아이콘, 이름, 값)
+
+  /// 줄 이름 → 눌렀을 때 동작 (예: '촬영 장소' → 지도 팝업). 있으면 오른쪽에 '지도' 표시.
+  final Map<String, VoidCallback> actions;
 
   @override
   Widget build(BuildContext context) {
@@ -94,32 +97,61 @@ class InfoRows extends StatelessWidget {
               padding: const EdgeInsets.only(left: 46),
               child: Container(height: 0.5, color: c.line),
             ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 9, left: 4, right: 18),
-                  child: SnapIcon(rows[i].$1, size: 22, color: c.mute),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        rows[i].$2,
-                        style: TextStyle(fontSize: 13, color: c.mute),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        rows[i].$3,
-                        style: TextStyle(fontSize: 16, color: c.ink),
-                      ),
-                    ],
+          Pressable(
+            onTap: actions[rows[i].$2],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 9, left: 4, right: 18),
+                    child: SnapIcon(rows[i].$1, size: 22, color: c.mute),
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          rows[i].$2,
+                          style: TextStyle(fontSize: 13, color: c.mute),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          rows[i].$3,
+                          style: TextStyle(fontSize: 16, color: c.ink),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (actions[rows[i].$2] != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10, left: 8),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(9, 4, 6, 4),
+                        decoration: BoxDecoration(
+                          color: c.soft,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '지도',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: c.pk,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            SnapIcon('next', size: 13, color: c.pk),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],

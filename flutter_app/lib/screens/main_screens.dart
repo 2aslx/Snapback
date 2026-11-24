@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/snap_runner.dart';
 import '../widgets/photo_image.dart';
+import '../widgets/map_popup.dart';
 import 'record_screens.dart';
 
 // index.html(2aslx-patch-1) 의 섹션 5~15 + Flutter 추가 화면(16 앨범 상세).
@@ -643,7 +644,14 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
     final info = <(String, String, String)>[
       ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
       // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
-      ('pin', '촬영 장소', join([item.place, s.placeNameFor(item) ?? ''])),
+      (
+        'pin',
+        '촬영 장소',
+        // GPS 만 있고 장소 이름·주소가 아직 없으면 지도로 볼 수 있게 줄은 남긴다
+        join([item.place, s.placeNameFor(item) ?? '']).isNotEmpty
+            ? join([item.place, s.placeNameFor(item) ?? ''])
+            : (item.gps != null ? '위치 정보 있음' : ''),
+      ),
       ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
       ('palette', '분위기·특징', join([item.weather, item.caption])),
     ].where((x) => x.$3.isNotEmpty).toList();
@@ -721,7 +729,22 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
                 ),
                 if (_infoOpen) ...[
                   Container(height: 0.5, color: c.line),
-                  InfoRows(rows: info),
+                  InfoRows(
+                    rows: info,
+                    // GPS 가 있는 사진만: 촬영 장소를 누르면 지도 팝업
+                    actions: {
+                      if (item.gps case [final lat, final lng, ...])
+                        '촬영 장소': () => showPhotoMap(
+                          context,
+                          lat: lat,
+                          lng: lng,
+                          title: isUnknownInfo(item.place) || item.place.isEmpty
+                              ? '촬영 장소'
+                              : item.place,
+                          address: s.placeNameFor(item),
+                        ),
+                    },
+                  ),
                 ],
               ],
             ),
@@ -852,6 +875,13 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
   }
 }
 
+/// '2026-10-15' → '10월 15일'
+String _md(String date) {
+  final p = date.split('-');
+  if (p.length != 3) return date;
+  return '${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일';
+}
+
 /// 관련된 추억 앨범 — 사진 상세에서 연 가상 앨범(그날의 사진 / 비슷한 분위기)의 전체 사진.
 /// 갤러리에 실제 앨범을 만들지 않고 앱 안에서만 묶어 보여준다.
 class Screen18RelatedAlbum extends StatelessWidget {
@@ -905,6 +935,19 @@ class Screen18RelatedAlbum extends StatelessWidget {
           const SnapEmpty(icon: 'image', text: '이 앨범에 남은 사진이 없어요')
         else
           PhotoGrid(items: photos, onTap: (d) => s.openFromRelatedAlbum(d.id)),
+        if (photos.isNotEmpty)
+          SnapButton(
+            label: '이 사진들로 앨범 만들기',
+            icon: 'stack',
+            top: 18,
+            onTap: () => s.draftAlbumFromRelated(
+              sameDay
+                  ? '${_md(base.date)} ${s.memoryTitle(base)}'
+                  : '${s.memoryTitle(base)}의 분위기',
+              base,
+              photos,
+            ),
+          ),
         const SnapNote('사진 앱에 앨범을 만들지 않고, Snapback 안에서만 묶어 보여줘요'),
       ],
     );
@@ -1206,7 +1249,10 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
     if (draft == null) {
       return Column(
         children: [
-          SnapbackTopBar(title: '앨범 미리보기', onBack: () => s.go(11)),
+          SnapbackTopBar(
+            title: '앨범 미리보기',
+            onBack: () => s.go(s.albumDraftReturn),
+          ),
           const SnapEmpty(icon: 'stack', text: '미리볼 앨범이 없어요'),
         ],
       );
@@ -1223,7 +1269,7 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
       children: [
         SnapbackTopBar(
           title: '앨범 미리보기',
-          onBack: () => s.go(11),
+          onBack: () => s.go(s.albumDraftReturn),
           trailing: Text('${photos.length}장'),
         ),
         const SnapH3('앨범 이름', small: true),
