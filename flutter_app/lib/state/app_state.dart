@@ -324,6 +324,7 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
     await refreshHealth();
     loadAlbumSuggestions(); // 앱을 켤 때마다 앨범 제안을 새로 만든다
+    prefetchAddresses(); // 위치 정보가 있는 사진의 주소를 뒤에서 미리 받아 둔다
   }
 
   Future<void> refreshHealth() async {
@@ -456,21 +457,77 @@ class SnapbackState extends ChangeNotifier {
   }
 
   // ── 촬영 장소 주소 (구글 지도 또는 OpenStreetMap, 기기에 캐시) ─────────────
-  /// 좌표(소수 4자리 ≈ 11m) → 지역명
+  /// 좌표(소수 3자리 ≈ 110m, 가까운 사진끼리 같은 주소를 나눠 씀) → 지역명
   final Map<String, String> placeNames = {};
   final Set<String> _placeAsked = {};
 
   static String? _placeKey(PhotoItem d) {
     final g = d.gps;
     if (g == null || g.length < 2) return null;
-    return '${g[0].toStringAsFixed(4)},${g[1].toStringAsFixed(4)}';
+    return '${g[0].toStringAsFixed(3)},${g[1].toStringAsFixed(3)}';
+  }
+
+  /// 예전(소수 4자리) 캐시도 읽는다
+  String? _cachedPlace(PhotoItem d) {
+    final k = _placeKey(d);
+    if (k == null) return null;
+    final g = d.gps!;
+    return placeNames[k] ??
+        placeNames['${g[0].toStringAsFixed(4)},${g[1].toStringAsFixed(4)}'];
+  }
+
+  /// AI 에 보낼 사진별 주소 (주소를 아는 사진만)
+  Map<int, String> get addressById => {
+    for (final d in db) d.id: ?_cachedPlace(d),
+  };
+
+  // 위치 정보가 있는 사진의 주소를 한 장씩 미리 받아 둔다 (앨범·검색에서 '신촌' 같은 지명으로 찾기 위해)
+  Future<void>? _addrJob;
+
+  /// 주소를 미리 받아 둔다. [wait] 만큼만 기다리고 나머지는 계속 뒤에서 받는다.
+  Future<void> prefetchAddresses({Duration wait = Duration.zero}) async {
+    _addrJob ??= _runAddressJob().whenComplete(() => _addrJob = null);
+    if (wait > Duration.zero) {
+      await Future.any([_addrJob!, Future<void>.delayed(wait)]);
+    }
+  }
+
+  Future<void> _runAddressJob() async {
+    var changed = 0;
+    while (serverConnected) {
+      final d = visiblePhotos.where((x) => x.gps != null && _cachedPlace(x) == null)
+          .where((x) => !_placeAsked.contains(_placeKey(x)))
+          .firstOrNull;
+      if (d == null) break;
+      final k = _placeKey(d)!;
+      _placeAsked.add(k);
+      try {
+        final name = await api.placeName(d.gps![0], d.gps![1]);
+        if (name != null) {
+          placeNames[k] = name;
+          changed++;
+        }
+      } catch (_) {}
+      if (changed > 0 && changed % 10 == 0) await _savePlaceNames();
+    }
+    if (changed > 0) {
+      await _savePlaceNames();
+      notifyListeners();
+    }
+  }
+
+  Future<void> _savePlaceNames() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_placeNamesKey, jsonEncode(placeNames));
+    } catch (_) {}
   }
 
   /// 저장된 지역명. 없으면 서버에 한 번만 물어보고(앱 실행 중) 받아오면 다시 그린다.
   String? placeNameFor(PhotoItem d) {
     final k = _placeKey(d);
     if (k == null) return null;
-    final hit = placeNames[k];
+    final hit = _cachedPlace(d);
     if (hit != null) return hit;
     if (serverConnected && _placeAsked.add(k)) {
       api
@@ -1030,6 +1087,21 @@ class SnapbackState extends ChangeNotifier {
     }
   }
 
+  /// 지난 분석이 끝났으면 새 묶음을 시작: 끝난 사진(분석됨·지움·실패)을 대기열에서 빼서
+  /// 다음에 올린 사진만 센다. 분석이 아직 진행 중이면 그 묶음에 더해진다.
+  void prepareNewBatch() {
+    if (!analysisFinished) return;
+    final done = {for (final d in db) d.fileKey, ...removedKeys};
+    pickQueue.removeWhere(
+      (e) => (done.contains(e.key) || _failedKeys.contains(e.key)) && !_inFlight.contains(e.key),
+    );
+    _failedKeys.clear();
+    analysisFailed = 0;
+    analysisFinished = false;
+    analysisTotal = 0;
+    analysisDone = 0;
+  }
+
   String _skipNotice(int picked, int added, int already, int dup) {
     if (already == 0 && dup == 0) return '';
     return [
@@ -1041,6 +1113,7 @@ class SnapbackState extends ChangeNotifier {
 
   /// '직접 고르기'에서 고른 사진을 대기열에 넣고 (홈 ＋로 왔으면 바로 분석 시작) 돌아간다.
   void confirmPickedAssets() {
+    prepareNewBatch();
     final chosen = pickerAssets.where((a) => pickedAssetIds.contains(a.id)).toList();
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
     final already = chosen.where((a) => analyzed.contains('asset:${a.id}')).length;
@@ -1059,6 +1132,7 @@ class SnapbackState extends ChangeNotifier {
   /// '사진 접근 범위' + '분석 순서' 기준으로 사진 보관함에서 분석할 사진을 고른다.
   Future<int> queueFromLibrary() async {
     if (!await ensureLibrary()) return 0;
+    prepareNewBatch();
     if (scopeSelection == 2) return pickQueue.length; // 직접 고른 사진 그대로
     // 메타데이터만 읽으므로 가볍다. 순서 기준으로 정렬한 뒤 상한만큼 담는다.
     var list = <AssetEntity>[];
@@ -1123,12 +1197,7 @@ class SnapbackState extends ChangeNotifier {
     final files = await _picker.pickMultiImage();
     if (files.isEmpty) return 0;
     // 분석이 끝난 묶음이면 먼저 비워서, 이번에 올린 사진만 세게 한다
-    if (analysisFinished) {
-      final done = {for (final d in db) d.fileKey, ...removedKeys};
-      pickQueue.removeWhere((e) => done.contains(e.key) || _failedKeys.contains(e.key));
-      _failedKeys.clear();
-      analysisFinished = false;
-    }
+    prepareNewBatch();
     final seen = pickQueue.map((e) => e.key).toSet();
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
     var added = 0, already = 0, dup = 0;
@@ -1242,6 +1311,7 @@ class SnapbackState extends ChangeNotifier {
     }
 
     if (myRun == _runId) {
+      prefetchAddresses(); // 새로 분석한 사진의 주소도 받아 둔다
       analysisRunning = false;
       analysisFinished = true;
       etaMs = 0;
@@ -1557,6 +1627,7 @@ class SnapbackState extends ChangeNotifier {
         visiblePhotos,
         searchHistory,
         wantQuestion: wantQuestion,
+        addr: addressById,
       );
       if (run != _searchRunId) return; // 그사이 새 검색을 시작함
       searchResults = res.ranked.take(5).toList();
@@ -1614,9 +1685,12 @@ class SnapbackState extends ChangeNotifier {
     albumError = null;
     notifyListeners();
     try {
-      final (title, ids, category) = await api.composeAlbum(
+      // 위치로 찾을 수 있게 주소를 잠깐(최대 8초) 더 받아 두고 보낸다
+      await prefetchAddresses(wait: const Duration(seconds: 8));
+      final (title, ids, category, reason) = await api.composeAlbum(
         visiblePhotos,
         q,
+        addr: addressById,
         categories: [
           for (final c in allCategories)
             {
@@ -1629,7 +1703,12 @@ class SnapbackState extends ChangeNotifier {
       final byId = {for (final d in db) d.id: d};
       final valid = ids.where(byId.containsKey).toList();
       if (valid.isEmpty) {
-        albumError = '조건에 맞는 사진을 찾지 못했어요. 조금 다르게 설명해 보세요.';
+        final noLocation = visiblePhotos.every((d) => d.gps == null);
+        albumError = [
+          '조건에 맞는 사진을 찾지 못했어요.',
+          if (reason.isNotEmpty) reason,
+          if (noLocation) '위치 정보가 있는 사진이 없어 장소로는 찾기 어려워요.',
+        ].join(' ');
       } else {
         albumDraft = AlbumSuggestion(
           title: title.isEmpty ? q : title,
@@ -1680,7 +1759,10 @@ class SnapbackState extends ChangeNotifier {
     albumSuggestionsLoading = true;
     notifyListeners();
     try {
-      albumSuggestions = await api.suggestAlbums(photos.take(300).toList());
+      albumSuggestions = await api.suggestAlbums(
+        photos.take(300).toList(),
+        addr: addressById,
+      );
     } catch (_) {
       // 실패하면 기본 예시 그대로
     } finally {
@@ -1893,6 +1975,44 @@ class SnapbackState extends ChangeNotifier {
         .toSet();
   }
 
+  /// 큰 분류: 정보(스크린샷·문서) · 음식 · 인물 · 풍경·장소
+  static String topicGroup(PhotoItem d) {
+    if (d.isInfoImage) return '정보';
+    if (d.food.any((f) => !isUnknownInfo(f))) return '음식';
+    final people = d.people.trim();
+    if (people.isNotEmpty && !isUnknownInfo(people)) return '인물';
+    return '풍경·장소';
+  }
+
+  // 비교에서 빼는 너무 흔한 말 (날씨·시간대·실내/실외 등은 '비슷함'의 근거로 약함)
+  static const _genericWords = {
+    '실내', '실외', '야외', '배경', '조명', '사진', '이미지', '모습', '장면',
+    '낮', '밤', '저녁', '아침', '오후', '맑음', '흐림', '비', '눈',
+  };
+
+  /// 주제 비교용 키워드: AI 검색 키워드 · 카테고리 · 음식 · 장소
+  static Set<String> topicTokens(PhotoItem d) => {
+        ...d.searchKeywords,
+        ...d.semanticCategory,
+        ...d.food,
+        ...d.place.split(RegExp(r'[()\s·,]+')),
+      }
+          .map((x) => x.trim())
+          .where((x) => x.length >= 2 && !_genericWords.contains(x) && !isUnknownInfo(x))
+          .toSet();
+
+  /// 최소한 카테고리나 키워드 하나는 같아야 '비슷한 사진'으로 본다
+  /// (풍경이면 풍경, 음식이면 음식 · 또는 '카페'처럼 같은 키워드)
+  static bool sharesTopic(PhotoItem a, PhotoItem b) {
+    if (topicGroup(a) == topicGroup(b)) return true;
+    if (a.semanticCategory.isNotEmpty &&
+        b.semanticCategory.isNotEmpty &&
+        a.semanticCategory.first == b.semanticCategory.first) {
+      return true;
+    }
+    return topicTokens(a).intersection(topicTokens(b)).isNotEmpty;
+  }
+
   static const _timeOrder = {'아침': 0, '낮': 1, '오후': 1, '저녁': 2, '밤': 3};
 
   /// '그날의 사진' 대표: 기준 사진과 촬영 시각이 가장 가까운 사진.
@@ -1921,7 +2041,8 @@ class SnapbackState extends ChangeNotifier {
     final baseTokens = _tokens(d);
     final simPairs =
         others
-            .where((x) => x.date != d.date)
+            // 같은 날이 아니고, 카테고리나 키워드가 하나라도 같은 사진만
+            .where((x) => x.date != d.date && sharesTopic(d, x))
             .map((x) => MapEntry(x, _tokens(x).intersection(baseTokens).length))
             .where((e) => e.value > 0)
             .toList()

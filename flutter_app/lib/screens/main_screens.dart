@@ -2006,7 +2006,11 @@ class _Screen13SearchState extends State<Screen13Search>
         '${x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : ''}';
     final top = valid.first;
     final topPhoto = byId[top.id]!;
-    final rest = valid.skip(1).toList();
+    // 다른 후보: 가장 유력한 사진과 카테고리나 키워드가 하나라도 같은 사진만
+    final rest = valid
+        .skip(1)
+        .where((x) => SnapbackState.sharesTopic(topPhoto, byId[x.id]!))
+        .toList();
     // 답변 기록 (Q: … / A: …) — 지금까지 더한 기억 단서
     final answers = s.searchHistory
         .skip(1)

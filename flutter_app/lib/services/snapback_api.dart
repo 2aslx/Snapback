@@ -138,14 +138,27 @@ class SnapbackApi {
     }
   }
 
+  /// AI 로 보낼 사진 목록: 썸네일 없이, 촬영 위치는 좌표 대신 시·구·동 주소(addr)로
+  static List<Map<String, dynamic>> aiDb(
+    List<PhotoItem> db,
+    Map<int, String> addr,
+  ) => [
+    for (final d in db)
+      {
+        ...d.toJson(includeThumb: false)..remove('gps'),
+        'addr': ?addr[d.id],
+      },
+  ];
+
   /// [wantQuestion] — '질문 한 번 더하기': 서버가 후보를 가를 질문을 반드시 하나 만든다.
   Future<SearchResponse> searchMemory(
     List<PhotoItem> db,
     List<String> hist, {
     bool wantQuestion = false,
+    Map<int, String> addr = const {},
   }) async {
     final data = await _post('/api/search', {
-      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+      'db': aiDb(db, addr),
       'hist': hist,
       if (wantQuestion) 'wantQuestion': true,
     });
@@ -162,15 +175,15 @@ class SnapbackApi {
     return SearchResponse(ranked: ranked, question: question);
   }
 
-  /// AI 대화형 앨범: 자연어 요청 → (앨범 이름, 고른 사진 id)
-  /// 앨범 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null)
-  Future<(String, List<int>, String?)> composeAlbum(
+  /// AI 대화형 앨범: 자연어 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null, 못 찾은 이유)
+  Future<(String, List<int>, String?, String)> composeAlbum(
     List<PhotoItem> db,
     String request, {
     List<Map<String, String>> categories = const [],
+    Map<int, String> addr = const {},
   }) async {
     final data = await _post('/api/album', {
-      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+      'db': aiDb(db, addr),
       'request': request,
       if (categories.isNotEmpty) 'categories': categories,
     });
@@ -183,6 +196,7 @@ class SnapbackApi {
       (data['title'] ?? '').toString(),
       ids,
       cat is String && cat.isNotEmpty ? cat : null,
+      (data['reason'] ?? '').toString(),
     );
   }
 
@@ -206,9 +220,12 @@ class SnapbackApi {
       });
 
   /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)
-  Future<List<String>> suggestAlbums(List<PhotoItem> db) async {
+  Future<List<String>> suggestAlbums(
+    List<PhotoItem> db, {
+    Map<int, String> addr = const {},
+  }) async {
     final data = await _post('/api/suggest', {
-      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+      'db': aiDb(db, addr),
     });
     return ((data['suggestions'] as List?) ?? const [])
         .map((e) => '$e'.trim())

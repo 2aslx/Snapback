@@ -170,7 +170,8 @@ function normalizeAnalysis(r) {
 }
 
 const searchPrompt = (db, hist, extra = '') =>
-  '너는 스마트 갤러리 기억 검색 엔진이다. 사진 DB에서 사용자의 흐릿한 기억과 대화 기록에 가장 맞는 사진을 찾아라.\nDB:' + JSON.stringify(db) +
+  '너는 스마트 갤러리 기억 검색 엔진이다. 사진 DB에서 사용자의 흐릿한 기억과 대화 기록에 가장 맞는 사진을 찾아라. ' +
+  'addr 는 촬영 위치의 시·구·동 주소다. 신촌·홍대 같은 생활권 지명은 해당 행정 주소와 연결해 판단하라.\nDB:' + JSON.stringify(db) +
   '\n대화:' + JSON.stringify(hist) +
   '\n규칙: 대화에 이미 나온 질문과 같거나 비슷한 주제(건너뛴 질문 포함)는 절대 다시 묻지 마라. 더 이상 가를 새 질문이 없거나 후보가 뚜렷하면 question을 null로 반환하라.' +
   (extra ? '\n' + extra : '') +
@@ -258,25 +259,77 @@ const cleanCats = raw => {
     .filter(c => c.id && c.label);
   return list.length ? list : DEFAULT_CATS;
 };
-const albumPrompt = (db, request, cats) =>
-  '너는 스마트 갤러리의 앨범 큐레이터다. 사용자의 앨범 요청에 맞는 사진을 DB에서 모두 골라라. ' +
-  '요청의 포함 조건과 제외 조건(예: "음식 사진은 빼고")을 모두 지켜라. 확실히 맞지 않는 사진은 넣지 마라.' +
-  '\n그리고 요청과 고른 사진 내용을 보고 아래 카테고리 중 가장 알맞은 것 하나의 id를 골라라.' +
-  '\n카테고리:' + JSON.stringify(cats) +
-  '\nDB:' + JSON.stringify(db) + '\n요청:' + JSON.stringify(request) +
-  '\nJSON만 출력: {"title":"15자 이내 앨범 이름","ids":[고른 사진 id 숫자들],"category":"카테고리 id"}';
+// ── 자연어 앨범 만들기 (3단계) ─────────────────────────────────
+// 1) AI 가 요청을 조건으로 해석: 장소는 주소에 나오는 행정 지명으로 펼치고(예: 신촌 → 창천동·신촌동…), 시간은 날짜 범위로
+// 2) 서버가 장소(addr)·시간(date)으로 정확히 거른다
+// 3) 남은 후보 중 주제·제외 조건에 맞는 사진만 AI 가 고른다
+const albumParsePrompt = (request, cats) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const y = Number(today.slice(0, 4));
+  return '스마트 갤러리 앨범 요청을 조건으로 해석해 JSON만 출력하라. 오늘은 ' + today + '.\n' +
+  '[규칙]\n' +
+  '- place.terms: 요청의 장소를 사진 주소(시·구·동 행정 주소)에 나올 이름으로 펼친다. 생활권 지명은 그 지역의 행정동 이름들로 펼치고 원래 지명도 넣는다. 확실한 이름만 넣고, 구 이름은 그 지명이 확실히 속한 구일 때만 넣는다.\n' +
+  '- time: "올여름·작년·10월·이번 달·최근" 같은 시간 표현은 오늘 기준 날짜 범위(from·to, YYYY-MM-DD)로 바꾼다. 여름=6~8월, 봄=3~5월, 가을=9~11월, 겨울=12~2월.\n' +
+  '- topic: 무엇을 찍은 사진인지(먹은 것·음식·맛집·디저트 → "음식이 보이는 사진", 풍경·바다 → "풍경이 주제인 사진" 등). exclude: "~은 빼고" 조건.\n' +
+  '- 요청에 없는 조건은 null 또는 has=false.\n' +
+  '[예시]\n' +
+  '요청 "작년 여름 신촌에서 먹은 음식" → {"title":"작년 여름 신촌 맛집","place":{"has":true,"terms":["신촌","창천동","신촌동","대현동","대신동","노고산동"]},"time":{"from":"' + (y - 1) + '-06-01","to":"' + (y - 1) + '-08-31"},"topic":"음식이 보이는 사진","exclude":null,"category":"memories"}\n' +
+  '요청 "올여름 먹은 것들" → {"title":"올여름 먹은 것들","place":{"has":false,"terms":[]},"time":{"from":"' + y + '-06-01","to":"' + y + '-08-31"},"topic":"음식이 보이는 사진","exclude":null,"category":"memories"}\n' +
+  '요청 "홍대에서 찍은 사진 중 음식은 빼고" → {"title":"홍대의 순간들","place":{"has":true,"terms":["홍대","서교동","동교동","합정동","연남동"]},"time":{"from":null,"to":null},"topic":null,"exclude":"음식이 주제인 사진","category":"memories"}\n' +
+  '카테고리(category 는 이 중 id 하나):' + JSON.stringify(cats) + '\n요청:' + JSON.stringify(request) + '\nJSON:';
+};
+
+const albumPickPrompt = (db, topic, exclude) =>
+  '아래 사진 DB 에서 조건에 맞는 사진 id 를 모두 골라 JSON만 출력하라.\n' +
+  (topic ? '- 포함 조건: ' + topic + ' (food·kw·cat·caption·summary·type 를 함께 본다. 예: 음식 사진은 food 가 있거나 음식·디저트·음료가 주제인 사진)\n' : '') +
+  (exclude ? '- 제외 조건: ' + exclude + ' (해당하면 반드시 뺀다)\n' : '') +
+  'DB:' + JSON.stringify(db) + '\n{"ids":[숫자들]}';
 
 async function album(b) {
   const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
   if (!request || !Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
   const db = b.db.map(slimPhoto);
-  const known = new Set(db.map(d => d.id));
   const cats = cleanCats(b.categories);
-  const r = await ask([{ type: 'input_text', text: albumPrompt(db, request, cats) }]);
-  const ids = [...new Set((Array.isArray(r.ids) ? r.ids : []).map(Number))].filter(id => known.has(id));
-  const title = String(r.title || '').trim().slice(0, 30) || request.slice(0, 15);
-  const category = cats.some(c => c.id === r.category) ? r.category : null;
-  return [200, { title, ids, category }];
+  const q = await ask([{ type: 'input_text', text: albumParsePrompt(request, cats) }]);
+  const title = String(q.title || '').trim().slice(0, 30) || request.slice(0, 15);
+  const category = cats.some(c => c.id === q.category) ? q.category : null;
+
+  // 2) 장소·시간은 서버가 정확히 거른다
+  let cand = db;
+  const terms = (q.place?.has && Array.isArray(q.place.terms) ? q.place.terms : [])
+    .map(t => String(t).trim()).filter(t => t.length >= 2);
+  if (terms.length) {
+    // '성수동' ↔ '성수2가3동', '신촌동' ↔ '신촌동' 처럼 행정동 번호·'가'가 붙어도 맞도록 지명 줄기로도 비교
+    const stems = [...new Set(terms.flatMap(t => {
+      const stem = t.replace(/(\d*가)?\d*동$/, '');
+      return stem.length >= 2 && stem !== t ? [t, stem] : [t];
+    }))];
+    const hit = d => stems.some(t => [d.addr, d.place, d.caption, d.summary].some(v => typeof v === 'string' && v.includes(t)));
+    cand = cand.filter(hit);
+    if (!cand.length) {
+      const located = db.filter(d => d.addr).length;
+      return [200, { title, ids: [], category, reason: located
+        ? `'${terms[0]}'에서 찍은 사진을 찾지 못했어요.`
+        : '위치 정보가 있는 사진이 없어 장소로 찾을 수 없어요.' }];
+    }
+  }
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(q.time?.from || '') ? q.time.from : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(q.time?.to || '') ? q.time.to : null;
+  if (from || to) {
+    cand = cand.filter(d => typeof d.date === 'string' && (!from || d.date >= from) && (!to || d.date <= to));
+    if (!cand.length) return [200, { title, ids: [], category, reason: '그 기간에 찍은 사진이 없어요.' }];
+  }
+
+  // 3) 주제·제외 조건은 남은 후보 중에서 AI 가 고른다
+  const topic = typeof q.topic === 'string' && q.topic.trim() ? q.topic.trim().slice(0, 100) : null;
+  const exclude = typeof q.exclude === 'string' && q.exclude.trim() ? q.exclude.trim().slice(0, 100) : null;
+  let ids = cand.map(d => Number(d.id));
+  if (topic || exclude) {
+    const r = await ask([{ type: 'input_text', text: albumPickPrompt(cand, topic, exclude) }]);
+    const known = new Set(ids);
+    ids = [...new Set((Array.isArray(r.ids) ? r.ids : []).map(Number))].filter(id => known.has(id));
+  }
+  return [200, { title, ids, category, reason: ids.length ? '' : '조건에 맞는 사진을 찾지 못했어요.' }];
 }
 
 // 사진 GPS 좌표 → 시·구·동 주소 (예: "서울특별시 성동구 성수2가3동")
