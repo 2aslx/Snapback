@@ -203,7 +203,7 @@ String _typeLine(PhotoRecord r) => switch (r.type) {
     if (r.date.isNotEmpty) r.date,
   ].join(' · '),
   'document' => ['문서', if (r.date.isNotEmpty) r.date].join(' · '),
-  _ => ['순간', if (r.date.isNotEmpty) r.date].join(' · '),
+  _ => ['추억', if (r.date.isNotEmpty) r.date].join(' · '),
 };
 
 String _typeIcon(PhotoRecord r) =>
@@ -278,7 +278,6 @@ class _RecordFormState extends State<_RecordForm> {
   late final _lines = TextEditingController(text: d.lines.join('\n'));
   late final _summary = TextEditingController(text: d.summary);
   late final _memo = TextEditingController(text: d.memo);
-  bool _typeOpen = false;
   bool _kindOpen = false;
 
   @override
@@ -398,76 +397,92 @@ class _RecordFormState extends State<_RecordForm> {
               ),
             const SizedBox(width: 12),
             Expanded(
-              child: Pressable(
-                onTap: () => setState(() => _typeOpen = !_typeOpen),
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 108),
-                  padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-                  decoration: BoxDecoration(
-                    color: warm,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          SnapIcon(type.icon, size: 22, color: c.pk),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              type.label,
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: c.pk,
-                              ),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 108),
+                padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                decoration: BoxDecoration(
+                  color: warm,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        SnapIcon(type.icon, size: 22, color: c.pk),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            type.label,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: c.pk,
                             ),
                           ),
-                          AnimatedRotation(
-                            turns: _typeOpen ? 0.5 : 0,
-                            duration: const Duration(milliseconds: 200),
-                            child: SnapIcon('down', size: 20, color: c.pk),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        type.desc,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.4,
-                          color: c.mute,
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      type.desc,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: c.mute,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ],
         ),
-        if (_typeOpen)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final t in kRecordTypes)
-                  SnapChip(
-                    label: t.label,
-                    icon: t.icon,
-                    accent: true,
-                    selected: t.id == d.type,
-                    onTap: () {
-                      _typeOpen = false;
-                      s.setRecordType(t.id);
-                    },
+        // 기록 종류 세 가지를 항상 나란히 보여 주고 고르게 한다
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            children: [
+              for (final t in kRecordTypes) ...[
+                if (t != kRecordTypes.first) const SizedBox(width: 8),
+                Expanded(
+                  child: Pressable(
+                    onTap: () => s.setRecordType(t.id),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: t.id == d.type ? c.pri : c.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: t.id == d.type ? c.pri : c.line,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          SnapIcon(
+                            t.icon,
+                            size: 20,
+                            color: t.id == d.type ? Colors.white : c.ink,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            t.label,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.id == d.type ? Colors.white : c.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
+                ),
               ],
-            ),
+            ],
           ),
+        ),
         Padding(
           padding: const EdgeInsets.only(top: 16),
           child: Row(
@@ -1117,6 +1132,145 @@ class RecordStrip extends StatelessWidget {
                 ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── ㉒ 기록 탭 ─────────────────────────────────────────────
+/// 하단 '기록' 탭: 기록으로 남긴 사진 모음. 위에 '즐겨찾기', 아래 '모든 기록'.
+/// 카드의 별을 누르면 즐겨찾기가 켜지고 꺼지며, 켜진 기록은 위 '즐겨찾기'로 올라간다.
+class Screen22Records extends StatelessWidget {
+  const Screen22Records({super.key, required this.state});
+  final SnapbackState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final byNew = [...s.records]
+      ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    final favs = byNew.where((r) => r.favorite).toList();
+    final rest = byNew.where((r) => !r.favorite).toList();
+    Widget grid(List<PhotoRecord> list) => AlbumCardGrid(
+      children: [for (final r in list) _RecordCard(state: s, record: r)],
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const LargeTitle(title: '기록'),
+        if (s.records.isEmpty) ...[
+          const SnapEmpty(
+            icon: 'bookmark',
+            text: '아직 남긴 기록이 없어요.\n사진 상세에서 \'기록으로 남기기\'를 눌러 보세요.',
+          ),
+        ] else ...[
+          if (favs.isNotEmpty) ...[
+            SnapH3('즐겨찾기', icon: 'star-fill', trailing: '(${favs.length})'),
+            grid(favs),
+          ],
+          if (rest.isNotEmpty) ...[
+            SnapH3(
+              favs.isEmpty ? '모든 기록' : '다른 기록',
+              trailing: '(${rest.length})',
+            ),
+            grid(rest),
+          ],
+          const SnapNote('별을 누르면 즐겨찾기에 올라가요'),
+        ],
+      ],
+    );
+  }
+}
+
+class _RecordCard extends StatelessWidget {
+  const _RecordCard({required this.state, required this.record});
+  final SnapbackState state;
+  final PhotoRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state;
+    final r = record;
+    final c = context.sc;
+    final photo = s.photoById(r.photoId);
+    return Pressable(
+      onTap: () => s.openRecord(r.id),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (photo != null)
+                  PhotoTile(item: photo, radius: 14, showDate: false)
+                else
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: c.card,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                // 즐겨찾기 별 (누르면 켜고 끄기)
+                Positioned(
+                  top: 4,
+                  left: 4,
+                  child: Pressable(
+                    onTap: () => s.toggleRecordFavorite(r.id),
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          color: Color(0xE6FFFFFF),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: SnapIcon(
+                          r.favorite ? 'star-fill' : 'star',
+                          size: 17,
+                          color: r.favorite
+                              ? const Color(0xFFE0A030)
+                              : const Color(0xFF8E8780),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            r.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: c.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              SnapIcon(_typeIcon(r), size: 14, color: c.mute),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _typeLine(r),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12.5, color: c.mute),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

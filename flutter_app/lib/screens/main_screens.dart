@@ -1071,15 +1071,8 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
               ),
           ],
         ),
-        // 나의 기록 (기록으로 남긴 사진)
-        if (s.records.isNotEmpty && !_editing) ...[
-          SnapH3('나의 기록', trailing: '(${s.records.length})'),
-          RecordStrip(state: s),
-          if (photos.isNotEmpty) const SnapH3('찾은 사진'),
-        ],
-        if (photos.isEmpty && s.records.isNotEmpty)
-          const SnapNote('검색으로 찾은 사진도 여기에 모여요')
-        else if (photos.isEmpty) ...[
+        // 기록으로 남긴 사진은 하단 '기록' 탭으로 옮김
+        if (photos.isEmpty) ...[
           const SnapEmpty(
             icon: 'heart',
             text: '아직 찾은 사진이 없어요.\n사진 탭에서 기억나는 장면을 말해 보세요.',
@@ -1840,6 +1833,9 @@ class _Screen13SearchState extends State<Screen13Search>
   /// AI 질문에 보기 대신 직접 적는 답
   final _answer = TextEditingController();
 
+  /// 크게 보여 주는 사진 위치 (다른 후보를 누르면 여기로 스크롤)
+  final _topResultKey = GlobalKey();
+
   void _sendAnswer() {
     final t = _answer.text.trim();
     if (t.isEmpty || widget.state.searchBusy) return;
@@ -2004,11 +2000,16 @@ class _Screen13SearchState extends State<Screen13Search>
     String clues(SearchRankedItem x) =>
         '${x.matched.isNotEmpty ? '✓ ${x.matched.join(' ✓ ')}' : ''}'
         '${x.missing.isNotEmpty ? ' · ? ${x.missing.join(', ')}' : ''}';
-    final top = valid.first;
+    // 다른 후보를 눌러 크게 올려 둔 사진이 있으면 그것을, 아니면 1순위를 크게
+    final top = valid.firstWhere(
+      (x) => x.id == s.pinnedResultId,
+      orElse: () => valid.first,
+    );
+    final pinned = top.id != valid.first.id;
     final topPhoto = byId[top.id]!;
     // 다른 후보: 가장 유력한 사진과 카테고리나 키워드가 하나라도 같은 사진만
     final rest = valid
-        .skip(1)
+        .where((x) => x.id != top.id)
         .where((x) => SnapbackState.sharesTopic(topPhoto, byId[x.id]!))
         .toList();
     // 답변 기록 (Q: … / A: …) — 지금까지 더한 기억 단서
@@ -2034,8 +2035,32 @@ class _Screen13SearchState extends State<Screen13Search>
                 ],
               ),
             ),
-          // 가장 가능성이 높은 사진 — 크게
+          // 다른 후보를 올려 보고 있으면 안내 + 1순위로 돌아가기
+          if (pinned)
+            Padding(
+              key: _topResultKey,
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '다른 후보를 크게 보고 있어요 · 맞으면 "맞아요"를 눌러 주세요',
+                      style: TextStyle(fontSize: 13, color: c.mute),
+                    ),
+                  ),
+                  Pressable(
+                    onTap: () => s.pinResult(null),
+                    child: Text(
+                      '1순위 보기',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.pk),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // 가장 가능성이 높은 사진(또는 고른 후보) — 크게. 누르면 '맞아요'와 같음
           GestureDetector(
+            key: pinned ? null : _topResultKey,
             onTap: () => s.openMemory(top.id),
             // 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 크게
             child: FullWidthPhoto(item: topPhoto, radius: 13, fallbackHeight: 260),
@@ -2160,7 +2185,21 @@ class _Screen13SearchState extends State<Screen13Search>
                     subtitle: byId[x.id]!.date,
                     subtitle2: clues(x).isEmpty ? null : clues(x),
                     trailingText: '${x.score}%',
-                    onTap: () => s.openMemory(x.id),
+                    // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
+                    onTap: () {
+                      s.pinResult(x.id);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        final ctx = _topResultKey.currentContext;
+                        if (ctx != null) {
+                          Scrollable.ensureVisible(
+                            ctx,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                            alignment: 0.1,
+                          );
+                        }
+                      });
+                    },
                   ),
               ],
             ),

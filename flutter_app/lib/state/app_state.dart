@@ -820,7 +820,17 @@ class SnapbackState extends ChangeNotifier {
   /// 홈 검색창([origin] 위치)에서 검색 화면으로: 창이 그 자리에서 내려오도록 위치를 넘긴다.
   /// 새 검색: 이전 검색어·결과·질문을 모두 비운다 (홈·기억 탭에서 검색을 새로 열 때)
   int _searchRunId = 0;
+  /// 검색 결과에서 '다른 후보'를 눌러 크게 올려 둔 사진 (맞아요로 확인할 대상). null 이면 1순위
+  int? pinnedResultId;
+
+  /// 다른 후보를 크게 보기 → 맞아요 / 질문 한 번 더하기로 확인 (바로 상세로 가지 않음)
+  void pinResult(int? id) {
+    pinnedResultId = id;
+    notifyListeners();
+  }
+
   void resetSearch() {
+    pinnedResultId = null;
     _searchRunId++; // 진행 중이던 검색 결과는 무시
     searchHistory.clear();
     searchResults = [];
@@ -1631,6 +1641,7 @@ class SnapbackState extends ChangeNotifier {
       );
       if (run != _searchRunId) return; // 그사이 새 검색을 시작함
       searchResults = res.ranked.take(5).toList();
+      pinnedResultId = null; // 순위가 새로 나오면 다시 1순위부터
       if (testSession != null && testSession!.firstRank == null) {
         final idx = searchResults.indexWhere(
           (x) => x.id == testSession!.targetId,

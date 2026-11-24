@@ -8,7 +8,9 @@ class RecordType {
   final String desc;
 }
 
+/// 기록 종류 (화면에 이 순서로 보임). id 'moment' 는 예전 저장 데이터와 호환되도록 그대로 둔다.
 const kRecordTypes = [
+  RecordType('moment', '추억 기록', 'heart', '그날의 추억과 느낌을\n짧은 메모로 남겨요.'),
   RecordType('place', '장소 기록', 'pin', '방문한 장소를 기록하고,\n나만의 맛집·카페 리스트로 모아보세요.'),
   RecordType(
     'document',
@@ -16,11 +18,12 @@ const kRecordTypes = [
     'doc',
     '문서의 내용을 추출해 정리하고,\n필요한 정보를 기록으로 남겨요.',
   ),
-  RecordType('moment', '순간 기록', 'heart', '그날의 순간과 느낌을\n짧은 메모로 남겨요.'),
 ];
 
-RecordType recordTypeOf(String id) =>
-    kRecordTypes.firstWhere((t) => t.id == id, orElse: () => kRecordTypes.last);
+RecordType recordTypeOf(String id) => kRecordTypes.firstWhere(
+  (t) => t.id == id,
+  orElse: () => kRecordTypes.first,
+);
 
 /// 장소 유형 (장소 기록)
 const kPlaceKinds = [
