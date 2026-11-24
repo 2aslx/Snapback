@@ -55,7 +55,7 @@ class PhotoAlbum {
   });
 
   final int id;
-  final String title;
+  String title; // 앨범 상세에서 이름을 바로 바꿀 수 있음
   final String emoji;
   final List<int> photoIds;
   final int createdAtMs;

@@ -219,9 +219,27 @@ async function record(b) {
   }];
 }
 
-const POST_ROUTES = { analyze, search, album, place, record };
+// '흩어진 순간 모으기' 제안: 사진 분석 DB를 보고 만들 만한 앨범 요청 문장 2~3개
+const suggestPrompt = db =>
+  '너는 스마트 갤러리의 앨범 큐레이터다. 아래 사진 DB를 보고, 사용자가 앨범으로 모으면 좋을 만한 주제를 골라 ' +
+  '앨범 요청 문장 3개를 만들어라. 규칙: 실제로 DB에 사진이 여러 장 있는 주제만, 서로 겹치지 않게, ' +
+  '각 문장은 22자 이내의 자연스러운 한국어(예: "올여름 친구들과 함께했던 순간들", "비 오는 날 카페 사진만 모아줘"), ' +
+  '사람 이름·신원은 쓰지 마라.\nDB:' + JSON.stringify(db) +
+  '\nJSON만 출력: {"suggestions":["문장1","문장2","문장3"]}';
 
-// route: 'health' | 'analyze' | 'search' | 'album' | 'place' | 'record' (그 외는 404)
+async function suggest(b) {
+  if (!Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
+  if (b.db.length === 0) return [200, { suggestions: [] }];
+  const db = b.db.map(({ thumb, e, ...d }) => d);
+  const r = await ask([{ type: 'input_text', text: suggestPrompt(db) }]);
+  const suggestions = [...new Set((Array.isArray(r.suggestions) ? r.suggestions : [])
+    .map(x => String(x || '').trim().slice(0, 30)).filter(Boolean))].slice(0, 3);
+  return [200, { suggestions }];
+}
+
+const POST_ROUTES = { analyze, search, album, place, record, suggest };
+
+// route: 'health' | 'analyze' | 'search' | 'album' | 'place' | 'record' | 'suggest' (그 외는 404)
 export async function handleApi(req, res, route) {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');

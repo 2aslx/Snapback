@@ -119,6 +119,17 @@ class Bleed extends StatelessWidget {
   );
 }
 
+/// 화면 전환 방향: 상단 뒤로가기 버튼으로 바뀌는 화면이면 true (셸이 '오른쪽으로 밀리는' 효과를 씀)
+class SnapNav {
+  static bool backPending = false;
+
+  static void markBack() {
+    backPending = true;
+    // 화면이 바뀌지 않았으면 이번 프레임이 끝날 때 원래대로
+    WidgetsBinding.instance.addPostFrameCallback((_) => backPending = false);
+  }
+}
+
 /// .top — 가운데 제목(17/600) + 왼쪽 뒤로가기(< 아이콘) + 오른쪽 보조 텍스트
 class SnapbackTopBar extends StatelessWidget {
   const SnapbackTopBar({
@@ -127,12 +138,16 @@ class SnapbackTopBar extends StatelessWidget {
     this.onBack,
     this.trailing,
     this.leadingIcon,
+    this.titleWidget,
   });
 
   final String title;
   final VoidCallback? onBack;
   final Widget? trailing;
   final String? leadingIcon;
+
+  /// 제목 자리에 글자 대신 넣을 위젯 (예: 앨범 이름 바로 편집)
+  final Widget? titleWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -161,17 +176,19 @@ class SnapbackTopBar extends StatelessWidget {
                       const SizedBox(width: 8),
                     ],
                     Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.3,
-                          color: c.ink,
-                        ),
-                      ),
+                      child:
+                          titleWidget ??
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.3,
+                              color: c.ink,
+                            ),
+                          ),
                     ),
                   ],
                 ),
@@ -184,7 +201,10 @@ class SnapbackTopBar extends StatelessWidget {
                   bottom: 0,
                   width: 72,
                   child: Pressable(
-                    onTap: onBack,
+                    onTap: () {
+                      SnapNav.markBack();
+                      onBack!();
+                    },
                     child: Align(
                       alignment: const Alignment(-1, 0.25),
                       child: Padding(
@@ -922,29 +942,159 @@ class PhotoTile extends StatelessWidget {
 
 /// .grid — 3열, gap 2, 가장자리까지 (모서리 없음, 날짜 숨김)
 class PhotoGrid extends StatelessWidget {
-  const PhotoGrid({super.key, required this.items, this.onTap});
+  const PhotoGrid({super.key, required this.items, this.onTap, this.selected});
   final List<PhotoItem> items;
   final void Function(PhotoItem)? onTap;
 
+  /// 선택 모드: null 이 아니면 각 타일에 선택 표시 (선택된 사진은 주황 테두리 + 체크)
+  final Set<int>? selected;
+
   // 디자인 B3 — 둥근 모서리 타일 3열, 사이 간격 6
   @override
-  Widget build(BuildContext context) => GridView.builder(
-    shrinkWrap: true,
-    padding: EdgeInsets.zero,
-    physics: const NeverScrollableScrollPhysics(),
-    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: 3,
-      mainAxisSpacing: 6,
-      crossAxisSpacing: 6,
-    ),
-    itemCount: items.length,
-    itemBuilder: (_, i) => PhotoTile(
-      item: items[i],
-      radius: 16,
-      showDate: false,
-      onTap: onTap == null ? null : () => onTap!(items[i]),
+  Widget build(BuildContext context) {
+    final c = context.sc;
+    return GridView.builder(
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+      ),
+      itemCount: items.length,
+      itemBuilder: (_, i) {
+        final tile = PhotoTile(
+          item: items[i],
+          radius: 16,
+          showDate: false,
+          onTap: onTap == null ? null : () => onTap!(items[i]),
+        );
+        final sel = selected;
+        if (sel == null) return tile;
+        final on = sel.contains(items[i].id);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Opacity(opacity: on ? 0.6 : 1, child: tile),
+            if (on)
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: c.pri, width: 3),
+                  ),
+                ),
+              ),
+            Positioned(
+              top: 7,
+              right: 7,
+              child: IgnorePointer(
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: on ? c.pri : const Color(0x99FFFFFF),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  alignment: Alignment.center,
+                  child: on
+                      ? const SnapIcon(
+                          'check',
+                          size: 13,
+                          color: Colors.white,
+                          strokeWidth: 2.6,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 확인 팝업 (예: 삭제). 확인을 누르면 true.
+Future<bool> showSnapConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmLabel = '삭제',
+  bool destructive = true,
+}) async {
+  final c = context.sc;
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierColor: const Color(0x66000000),
+    builder: (ctx) => Dialog(
+      backgroundColor: c.bg,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: c.ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, height: 1.45, color: c.mute),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: SnapButton(
+                    label: '취소',
+                    ghost: true,
+                    top: 0,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Pressable(
+                    onTap: () => Navigator.of(ctx).pop(true),
+                    child: Container(
+                      height: 50,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: destructive ? const Color(0xFFD93A2B) : c.pri,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     ),
   );
+  return ok == true;
 }
 
 /// .hs — 가로 스크롤 타일 (88, r10, gap 6)
@@ -1416,7 +1566,11 @@ class AlbumCardGrid extends StatelessWidget {
 /// 손잡이를 끌거나 막대를 눌러 원하는 위치로 바로 이동하고, 스크롤하는 동안 [labelAt] 이 준
 /// 날짜(그 위치에 보이는 사진의 촬영 날짜)를 손잡이 옆에 띄운다. 멈추면 잠시 뒤 말풍선만 사라진다.
 class DateScrollbar extends StatefulWidget {
-  const DateScrollbar({super.key, required this.controller, required this.labelAt});
+  const DateScrollbar({
+    super.key,
+    required this.controller,
+    required this.labelAt,
+  });
   final ScrollController controller;
   final String Function(double offset) labelAt;
 
@@ -1535,7 +1689,11 @@ class _DateScrollbarState extends State<DateScrollbar> {
                       color: c.bg,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: const [
-                        BoxShadow(color: Color(0x26000000), blurRadius: 10, offset: Offset(0, 2)),
+                        BoxShadow(
+                          color: Color(0x26000000),
+                          blurRadius: 10,
+                          offset: Offset(0, 2),
+                        ),
                       ],
                     ),
                     child: Text(

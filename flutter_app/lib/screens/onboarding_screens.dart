@@ -299,12 +299,27 @@ class AnalysisView {
     : tot = s.analysisTotal,
       dn = s.analysisDone,
       paused = s.analysisPaused,
-      done = s.analysisFinished && s.analysisTotal > 0;
+      done = s.analysisFinished && s.analysisTotal > 0,
+      relabel = false;
+
+  /// 하단 진행 카드용: 설정의 '사진 다시 분석하기'가 돌고 있으면 그 진행 상황을 보여준다
+  factory AnalysisView.mini(SnapbackState s) =>
+      s.relabelActiveForProgress ? AnalysisView._relabel(s) : AnalysisView(s);
+
+  AnalysisView._relabel(SnapbackState s)
+    : tot = s.relabelTotal,
+      dn = s.relabelDone,
+      paused = false,
+      done = s.relabelFinished,
+      relabel = true;
 
   final int tot;
   final int dn;
   final bool paused;
   final bool done;
+
+  /// 다시 분석(재라벨링) 진행인지
+  final bool relabel;
 
   int get pct => tot > 0 ? (dn / tot * 100).round().clamp(0, 100) : 0;
   double get p => pct / 100;

@@ -197,4 +197,15 @@ class SnapbackApi {
         'image': ?image,
         if (location != null && location.isNotEmpty) 'location': location,
       });
+
+  /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)
+  Future<List<String>> suggestAlbums(List<PhotoItem> db) async {
+    final data = await _post('/api/suggest', {
+      'db': db.map((d) => d.toJson(includeThumb: false)).toList(),
+    });
+    return ((data['suggestions'] as List?) ?? const [])
+        .map((e) => '$e'.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
 }

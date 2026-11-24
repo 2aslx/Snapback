@@ -27,6 +27,29 @@ class _Screen5HomeState extends State<Screen5Home>
     with SingleTickerProviderStateMixin {
   final _searchBoxKey = GlobalKey();
   bool _showAll = false; // '모두 보기' — 월별 전체 사진
+  bool _editing = false; // '편집' — 사진을 골라 앱에서 지우기
+  final Set<int> _sel = {};
+
+  void _tapPhoto(SnapbackState s, PhotoItem d) {
+    if (!_editing) return s.openMemory(d.id);
+    setState(() => _sel.contains(d.id) ? _sel.remove(d.id) : _sel.add(d.id));
+  }
+
+  Future<void> _deleteSelected(SnapbackState s) async {
+    final n = _sel.length;
+    final ok = await showSnapConfirm(
+      context,
+      title: '사진 $n장을 지울까요?',
+      message: 'Snapback 에서만 지워져요.\n사진 앱의 원본 사진은 그대로 남아요.\n지운 사진은 다시 분석하지 않아요.',
+    );
+    if (!ok || !mounted) return;
+    s.removePhotos({..._sel});
+    setState(() {
+      _sel.clear();
+      _editing = false;
+    });
+  }
+
   // 검색에서 뒤로 왔을 때: 검색창은 이미 제자리, 나머지 내용만 페이드 인
   late final AnimationController _reveal = AnimationController(
     vsync: this,
@@ -83,10 +106,7 @@ class _Screen5HomeState extends State<Screen5Home>
             fontSize: 18,
             fontWeight: FontWeight.w600,
             actions: [
-              TitleButton(
-                icon: 'plus',
-                onTap: s.openAddPhotos,
-              ),
+              TitleButton(icon: 'plus', onTap: s.openAddPhotos),
               TitleButton(icon: 'gear', onTap: () => s.go(12)),
             ],
           ),
@@ -161,6 +181,24 @@ class _Screen5HomeState extends State<Screen5Home>
                           ),
                         ),
                       ),
+                      // 편집: 사진을 골라 앱에서 지우기 (원본은 그대로)
+                      Pressable(
+                        onTap: () => setState(() {
+                          _editing = !_editing;
+                          _sel.clear();
+                        }),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14),
+                          child: Text(
+                            _editing ? '완료' : '편집',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: context.sc.pk,
+                            ),
+                          ),
+                        ),
+                      ),
                       if (photos.length > 9)
                         Pressable(
                           onTap: () => setState(() => _showAll = !_showAll),
@@ -176,10 +214,20 @@ class _Screen5HomeState extends State<Screen5Home>
                     ],
                   ),
                 ),
+                if (_editing)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SnapSub(
+                      _sel.isEmpty
+                          ? '지울 사진을 눌러 고르세요 · 사진 앱의 원본은 지워지지 않아요'
+                          : '${_sel.length}장 선택됨',
+                    ),
+                  ),
                 if (!_showAll)
                   PhotoGrid(
                     items: photos.take(9).toList(),
-                    onTap: (d) => s.openMemory(d.id),
+                    selected: _editing ? _sel : null,
+                    onTap: (d) => _tapPhoto(s, d),
                   )
                 else
                   for (final k in months) ...[
@@ -189,9 +237,17 @@ class _Screen5HomeState extends State<Screen5Home>
                     ),
                     PhotoGrid(
                       items: groups[k]!,
-                      onTap: (d) => s.openMemory(d.id),
+                      selected: _editing ? _sel : null,
+                      onTap: (d) => _tapPhoto(s, d),
                     ),
                   ],
+                if (_editing)
+                  SnapButton(
+                    label: _sel.isEmpty
+                        ? '지울 사진을 골라 주세요'
+                        : '선택한 사진 ${_sel.length}장 지우기',
+                    onTap: _sel.isEmpty ? null : () => _deleteSelected(s),
+                  ),
               ],
             ],
           ),
@@ -212,7 +268,9 @@ class _MemoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.sc;
     final p = photo.date.split('-');
-    final when = p.length == 3 ? ' · ${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일' : '';
+    final when = p.length == 3
+        ? ' · ${int.tryParse(p[1]) ?? p[1]}월 ${int.tryParse(p[2]) ?? p[2]}일'
+        : '';
     return Pressable(
       onTap: onTap,
       child: Padding(
@@ -222,7 +280,12 @@ class _MemoryCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              PhotoTile(item: photo, radius: 26, showDate: false, iconSize: 0.01),
+              PhotoTile(
+                item: photo,
+                radius: 26,
+                showDate: false,
+                iconSize: 0.01,
+              ),
               Positioned(
                 left: 12,
                 right: 12,
@@ -236,7 +299,10 @@ class _MemoryCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: c.bg.withValues(alpha: 0.82),
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 0.5),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          width: 0.5,
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -682,13 +748,18 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
             ),
           ),
         if (relatedTiles.isNotEmpty) ...[
-          if (record == null) const SnapH3('관련된 추억') else const SizedBox(height: 14),
+          if (record == null)
+            const SnapH3('관련된 추억')
+          else
+            const SizedBox(height: 14),
           Row(
             children: [
               Expanded(child: relatedTiles[0]),
               const SizedBox(width: 12),
               Expanded(
-                child: relatedTiles.length > 1 ? relatedTiles[1] : const SizedBox.shrink(),
+                child: relatedTiles.length > 1
+                    ? relatedTiles[1]
+                    : const SizedBox.shrink(),
               ),
             ],
           ),
@@ -1065,9 +1136,13 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  for (final e in _examples)
+                  // 내 사진 DB 로 만든 제안 (없으면 기본 예시)
+                  for (final e in s.albumSuggestions.isNotEmpty
+                      ? s.albumSuggestions
+                      : _examples)
                     SnapChip(
                       label: e,
+                      icon: s.albumSuggestions.isNotEmpty ? 'sparkle' : null,
                       onTap: () {
                         _req.text = e;
                         s.composeAlbum(e);
@@ -1539,7 +1614,10 @@ class _RelabelSectionState extends State<_RelabelSection> {
               trailing: s.relabelRunning
                   ? Pressable(
                       onTap: s.cancelRelabel,
-                      child: Text('중지', style: TextStyle(fontSize: 15, color: c.pk)),
+                      child: Text(
+                        '중지',
+                        style: TextStyle(fontSize: 15, color: c.pk),
+                      ),
                     )
                   : const Chevron(),
               onTap: s.relabelRunning || n == 0 || busy
@@ -2174,7 +2252,44 @@ class Screen16AlbumDetail extends StatefulWidget {
 }
 
 class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
-  bool _confirmDelete = false;
+  bool _editing = false;
+  final _name = TextEditingController();
+  final _nameFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _nameFocus.dispose();
+    super.dispose();
+  }
+
+  void _startEdit(String title) {
+    _name.text = title;
+    _name.selection = TextSelection(baseOffset: 0, extentOffset: title.length);
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _nameFocus.requestFocus(),
+    );
+  }
+
+  void _finishEdit(int albumId) {
+    if (!_editing) return;
+    widget.state.renameAlbum(albumId, _name.text);
+    setState(() => _editing = false);
+  }
+
+  /// 삭제 확인 팝업
+  Future<void> _confirmDelete(int albumId, String title) async {
+    final ok = await showSnapConfirm(
+      context,
+      title: '앨범을 삭제할까요?',
+      message: "'$title' 앨범만 지워지고,\n사진과 분석 정보는 그대로 남아요.",
+    );
+    if (ok) {
+      widget.state.deleteAlbum(albumId);
+      widget.state.go(11);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2194,7 +2309,75 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SnapbackTopBar(title: album.title, onBack: () => s.go(11)),
+        // 제목을 누르면 그 자리에서 앨범 이름 편집
+        SnapbackTopBar(
+          title: album.title,
+          onBack: () {
+            _finishEdit(album.id);
+            s.go(11);
+          },
+          titleWidget: _editing
+              ? IntrinsicWidth(
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 120),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: context.sc.card,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: context.sc.pri, width: 1.2),
+                    ),
+                    child: TextField(
+                      controller: _name,
+                      focusNode: _nameFocus,
+                      textAlign: TextAlign.center,
+                      maxLength: 30,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _finishEdit(album.id),
+                      onTapOutside: (_) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        _finishEdit(album.id);
+                      },
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.3,
+                        color: context.sc.ink,
+                      ),
+                      decoration: const InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                )
+              : Pressable(
+                  onTap: () => _startEdit(album.title),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          album.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.3,
+                            color: context.sc.ink,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      SnapIcon('pencil', size: 15, color: context.sc.mute),
+                    ],
+                  ),
+                ),
+        ),
         SnapSub(
           '사진 ${photos.length}장 · ${made.year}.${made.month}.${made.day} 만듦',
         ),
@@ -2216,16 +2399,9 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
         else
           PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
         SnapButton(
-          label: _confirmDelete ? '한 번 더 누르면 앨범이 삭제돼요' : '앨범 삭제',
+          label: '앨범 삭제',
           ghost: true,
-          onTap: () {
-            if (_confirmDelete) {
-              s.deleteAlbum(album.id);
-              s.go(11);
-            } else {
-              setState(() => _confirmDelete = true);
-            }
-          },
+          onTap: () => _confirmDelete(album.id, album.title),
         ),
         const SnapNote('앨범을 지워도 사진과 분석 정보는 그대로 남아요'),
       ],

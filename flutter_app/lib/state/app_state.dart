@@ -115,6 +115,12 @@ class SnapbackState extends ChangeNotifier {
   static const _recordsKey = 'snapback_records';
   static const _onboardedKey = 'snapback_onboarded';
   static const _queueKey = 'snapback_queue';
+  static const _removedKey = 'snapback_removed';
+
+  /// 사용자가 앱에서 지운 사진 (fileKey 또는 데모 사진 'seed:id').
+  /// 다시 분석 대기열에 넣지 않고, 다음 실행 때도 목록에서 빼 둔다. 사진 앱 원본은 건드리지 않는다.
+  final Set<String> removedKeys = {};
+  static String _removalKey(PhotoItem d) => d.fileKey ?? 'seed:${d.id}';
 
   /// 저장된 데이터를 다 읽었는지 (그 전에는 화면을 그리지 않아 시작 화면이 깜빡이지 않게)
   bool ready = false;
@@ -306,6 +312,8 @@ class SnapbackState extends ChangeNotifier {
         _nextId = maxId + 1;
       } catch (_) {}
     }
+    removedKeys.addAll(prefs.getStringList(_removedKey) ?? const []);
+    db.removeWhere((d) => removedKeys.contains(_removalKey(d)));
     // 초기 설정을 마쳤거나 이미 분석한 사진이 있으면 홈에서 시작 (분석 결과는 기기에 저장돼 있어 다시 분석하지 않음)
     final onboarded =
         (prefs.getBool(_onboardedKey) ?? false) || db.any((d) => d.id > 11);
@@ -314,6 +322,7 @@ class SnapbackState extends ChangeNotifier {
     ready = true;
     notifyListeners();
     await refreshHealth();
+    loadAlbumSuggestions(); // 앱을 켤 때마다 앨범 제안을 새로 만든다
   }
 
   Future<void> refreshHealth() async {
@@ -366,7 +375,7 @@ class SnapbackState extends ChangeNotifier {
         requestOption: const PermissionRequestOption(),
       );
       if (!perm.hasAccess) return;
-      final analyzed = {for (final d in db) d.fileKey};
+      final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
       if (keys.every(analyzed.contains)) {
         await prefs.remove(_queueKey);
         return;
@@ -386,6 +395,32 @@ class SnapbackState extends ChangeNotifier {
       analysisRunning = false;
       analysisFinished = false;
     } catch (_) {}
+  }
+
+  /// 앱에서 사진 지우기 (분석 정보·썸네일·앨범/기록/찾은 사진 연결만 삭제, 원본은 그대로)
+  void removePhotos(Set<int> ids) {
+    if (ids.isEmpty) return;
+    for (final d in db.where((d) => ids.contains(d.id))) {
+      removedKeys.add(_removalKey(d));
+    }
+    db.removeWhere((d) => ids.contains(d.id));
+    for (final a in albums) {
+      a.photoIds.removeWhere(ids.contains);
+    }
+    records.removeWhere((r) => ids.contains(r.photoId));
+    for (final r in records) {
+      r.linkedPhotoIds.removeWhere(ids.contains);
+    }
+    found.removeWhere((f) => ids.contains(f.id));
+    searchResults = searchResults.where((x) => !ids.contains(x.id)).toList();
+    notifyListeners();
+    _saveDb();
+    _saveAlbums();
+    _saveRecords();
+    _saveFound();
+    SharedPreferences.getInstance()
+        .then((p) => p.setStringList(_removedKey, removedKeys.toList()))
+        .catchError((_) => true);
   }
 
   Future<void> _saveDb() async {
@@ -694,12 +729,13 @@ class SnapbackState extends ChangeNotifier {
   @override
   void notifyListeners() {
     super.notifyListeners();
+    final rl = relabelActiveForProgress; // 다시 분석 중이면 그 진행을 잠금화면에
     _liveActivity.sync(
-      done: analysisDone,
-      total: analysisTotal,
-      running: analysisRunning,
-      paused: analysisPaused,
-      finished: analysisFinished,
+      done: rl ? relabelDone : analysisDone,
+      total: rl ? relabelTotal : analysisTotal,
+      running: rl ? relabelRunning : analysisRunning,
+      paused: rl ? false : analysisPaused,
+      finished: rl ? relabelFinished : analysisFinished,
     );
   }
 
@@ -1033,7 +1069,7 @@ class SnapbackState extends ChangeNotifier {
     }
     list.sort((a, b) => compareForOrder(a.createDateTime, b.createDateTime));
     // 이미 분석한 사진은 빼고 상한만큼 담는다 (분석한 사진이 자리를 차지하지 않게)
-    final analyzed = {for (final d in db) d.fileKey};
+    final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
     _enqueueAssets(
       list.where((a) => !analyzed.contains('asset:${a.id}')).take(kMaxLibraryQueue),
     );
@@ -1092,7 +1128,7 @@ class SnapbackState extends ChangeNotifier {
     analysisRunning = true;
     analysisFinished = false;
 
-    final analyzed = {for (final d in db) d.fileKey};
+    final analyzed = {for (final d in db) d.fileKey, ...removedKeys};
     final pending = pickQueue
         .where((p) => !analyzed.contains(p.key) && !_inFlight.contains(p.key))
         .toList();
@@ -1316,7 +1352,13 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 진행 표시(하단 카드·잠금화면)를 다시 분석 쪽으로 보여줄지: 다시 분석 중이거나 방금 끝났고, 일반 분석은 쉬는 중
+  bool get relabelActiveForProgress =>
+      relabelRunning ||
+      (relabelFinished && !analysisRunning && !analysisPaused && pickQueue.isEmpty);
+
   void cancelRelabel() {
+    _liveActivity.cancel();
     _relabelRun++;
     relabelRunning = false;
     relabelFinished = false;
@@ -1534,6 +1576,25 @@ class SnapbackState extends ChangeNotifier {
     go(17);
   }
 
+  /// '흩어진 순간 모으기' 제안 (앱 실행 시 GPT 로 생성). 비어 있으면 화면은 기본 예시를 쓴다.
+  List<String> albumSuggestions = [];
+  bool albumSuggestionsLoading = false;
+
+  Future<void> loadAlbumSuggestions() async {
+    final photos = visiblePhotos.toList()..sort((a, b) => b.date.compareTo(a.date));
+    if (!serverConnected || photos.isEmpty || albumSuggestionsLoading) return;
+    albumSuggestionsLoading = true;
+    notifyListeners();
+    try {
+      albumSuggestions = await api.suggestAlbums(photos.take(300).toList());
+    } catch (_) {
+      // 실패하면 기본 예시 그대로
+    } finally {
+      albumSuggestionsLoading = false;
+      notifyListeners();
+    }
+  }
+
   void toggleDraftPhoto(int id) {
     if (!albumDraftSelected.remove(id)) albumDraftSelected.add(id);
     notifyListeners();
@@ -1648,6 +1709,16 @@ class SnapbackState extends ChangeNotifier {
     if (albumDraft?.category == id) setDraftCategory(null);
     notifyListeners();
     _saveCategories();
+    _saveAlbums();
+  }
+
+  /// 앨범 이름 바꾸기 (빈 이름이면 그대로)
+  void renameAlbum(int albumId, String title) {
+    final a = albumById(albumId);
+    final t = title.trim();
+    if (a == null || t.isEmpty || t == a.title) return;
+    a.title = t.length > 30 ? t.substring(0, 30) : t;
+    notifyListeners();
     _saveAlbums();
   }
 

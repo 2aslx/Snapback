@@ -67,6 +67,9 @@ class _SnapbackShell extends StatelessWidget {
   final SnapbackState state;
 
   // .scr.tb — 하단 탭바가 보이는 화면
+  static int _lastScreen = -1;
+  static bool _back = false;
+
   static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19, 21};
 
   Widget _buildScreen() {
@@ -133,6 +136,13 @@ class _SnapbackShell extends StatelessWidget {
         ),
       );
     }
+    // 화면이 바뀌는 순간의 방향을 기억 (뒤로가기 버튼이면 오른쪽으로 밀리는 전환)
+    if (state.screen != _lastScreen) {
+      _back = SnapNav.backPending;
+      SnapNav.backPending = false;
+      _lastScreen = state.screen;
+    }
+    final back = _back;
     final showTabs = _tabScreens.contains(state.screen);
     final reduce = MediaQuery.of(context).disableAnimations;
     final bottomInset = MediaQuery.of(context).padding.bottom;
@@ -155,20 +165,54 @@ class _SnapbackShell extends StatelessWidget {
                       child: AnimatedSwitcher(
                         duration: reduce || state.seamlessSwitch
                             ? Duration.zero
-                            : const Duration(milliseconds: 250),
-                        switchInCurve: Curves.ease,
-                        // 이전 화면은 바로 사라진다 (display:none)
-                        layoutBuilder: (current, previous) =>
-                            Stack(fit: StackFit.expand, children: [?current]),
+                            : Duration(milliseconds: back ? 320 : 250),
+                        switchInCurve: back ? Curves.easeOutCubic : Curves.ease,
+                        // 앞으로 갈 때: 이전 화면은 바로 사라짐 (display:none)
+                        // 뒤로 갈 때: 이전 화면(나가는 화면)을 위에 두고 오른쪽으로 밀어낸다
+                        layoutBuilder: (current, previous) => Stack(
+                          fit: StackFit.expand,
+                          children: back ? [?current, ...previous] : [?current],
+                        ),
                         transitionBuilder: (child, anim) => AnimatedBuilder(
                           animation: anim,
-                          builder: (_, w) => Opacity(
-                            opacity: anim.value,
-                            child: Transform.translate(
-                              offset: Offset(0, 8 * (1 - anim.value)),
-                              child: w,
-                            ),
-                          ),
+                          builder: (_, w) {
+                            if (!back) {
+                              // .scr.on { animation: in .25s } — 투명→불투명 + 8px 위로
+                              return Opacity(
+                                opacity: anim.value,
+                                child: Transform.translate(
+                                  offset: Offset(0, 8 * (1 - anim.value)),
+                                  child: w,
+                                ),
+                              );
+                            }
+                            final incoming = child.key == ValueKey(state.screen);
+                            if (incoming) {
+                              // 들어오는(이전) 화면: 왼쪽에서 살짝 따라 들어옴
+                              return FractionalTranslation(
+                                translation: Offset(-0.28 * (1 - anim.value), 0),
+                                child: w,
+                              );
+                            }
+                            // 나가는 화면: 오른쪽으로 밀려 나감 (왼쪽 가장자리에 옅은 그림자)
+                            final t = Curves.easeOutCubic.transform(1 - anim.value);
+                            return FractionalTranslation(
+                              translation: Offset(t, 0),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: c.bg,
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x22000000),
+                                      blurRadius: 16,
+                                      offset: Offset(-4, 0),
+                                    ),
+                                  ],
+                                ),
+                                child: w,
+                              ),
+                            );
+                          },
                           child: child,
                         ),
                         // 사진 보관함 고르기(2, iOS)는 그리드가 직접 스크롤 → 바깥 스크롤 없이 높이 고정
@@ -330,7 +374,7 @@ class _MiniHostState extends State<_MiniHost> {
 
   void _sync() {
     final s = widget.state;
-    final done = s.analysisFinished && s.analysisTotal > 0;
+    final done = AnalysisView.mini(s).done;
     if (done && !_wasDone) {
       _hide?.cancel();
       _hide = Timer(const Duration(seconds: 5), () {
@@ -351,7 +395,7 @@ class _MiniHostState extends State<_MiniHost> {
 
   @override
   Widget build(BuildContext context) =>
-      widget.builder(widget.state.analysisTotal > 0 && !_hidden);
+      widget.builder(AnalysisView.mini(widget.state).tot > 0 && !_hidden);
 }
 
 /// #hb — 탭바 위 하단 분석 진행 바 (작업을 가리지 않도록 한 줄 + 트랙)
@@ -367,8 +411,10 @@ class _MiniProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
-    final v = AnalysisView(s);
-    final status = v.done ? '분석 완료' : (v.paused ? '일시정지됨' : '사진 분석 중');
+    final v = AnalysisView.mini(s);
+    final status = v.relabel
+        ? (v.done ? '다시 분석 완료' : '사진 다시 분석 중')
+        : (v.done ? '분석 완료' : (v.paused ? '일시정지됨' : '사진 분석 중'));
     final c = context.sc;
     final white = TextStyle(
       color: c.ink,
@@ -376,7 +422,7 @@ class _MiniProgressCard extends StatelessWidget {
     );
     // 디자인 B3 — 흰 반투명 카드: 캐릭터 · 상태 · 개수/퍼센트 · 주황 진행선 · 검은 일시정지 버튼
     return GestureDetector(
-      onTap: () => s.go(4), // 자세히 보기 (선택)
+      onTap: () => s.go(v.relabel ? 12 : 4), // 자세히 보기 (다시 분석은 설정 화면)
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
         decoration: BoxDecoration(
@@ -430,7 +476,7 @@ class _MiniProgressCard extends StatelessWidget {
             const SizedBox(width: 12),
             if (!v.done)
               Pressable(
-                onTap: s.togglePauseAnalysis,
+                onTap: v.relabel ? s.cancelRelabel : s.togglePauseAnalysis,
                 child: Container(
                   width: 44,
                   height: 44,
@@ -440,7 +486,7 @@ class _MiniProgressCard extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: SnapIcon(
-                    v.paused ? 'play' : 'pause',
+                    v.relabel ? 'close' : (v.paused ? 'play' : 'pause'),
                     size: 18,
                     color: c.bg,
                   ),
