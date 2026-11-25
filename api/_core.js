@@ -177,7 +177,7 @@ const searchPrompt = (db, hist, extra = '') =>
   '\n규칙: 대화에 이미 나온 질문과 같거나 비슷한 주제(건너뛴 질문 포함)는 절대 다시 묻지 마라. 더 이상 가를 새 질문이 없거나 후보가 뚜렷하면 question을 null로 반환하라.' +
   (extra ? '\n' + extra : '') +
   '\n대화의 "Q: … / A: …" 에서 A 는 사용자가 확인해 준 사실이다. 답과 맞는 사진은 점수를 크게 올리고, 답과 어긋나는 사진(예: 답이 "비"인데 weather 가 흐림·맑음)은 크게 낮춰라. 답이 "모르겠어요"·건너뛰기면 무시하라.' +
-  '\nranked 에는 기억과 관련 있는 사진(점수 40 이상)만 점수 높은 순으로 최대 30개 넣어라. 응답을 짧게: matched·missing 은 각각 최대 3개의 짧은 낱말.' +
+  '\nranked 에는 기억과 관련 있는 사진을 점수 높은 순으로 최대 30개 넣어라.' +
   '\nmatched 에는 기억과 맞은 단서를 그 사진 정보에서 **글자 그대로** 복사한 낱말로 적어라(사진 정보에 없는 말은 쓰지 마라).' +
   '\nJSON만 출력: {"ranked":[{"id":숫자,"score":0-100,"matched":["맞은 단서"],"missing":["확인 안 된 단서"]}],"question":{"text":"아직 묻지 않은, 후보를 가장 잘 가르는 질문 하나","options":["선택지 2~3개"]} 또는 null}';
 
@@ -276,35 +276,10 @@ function rankStable(db, ranked, hist = []) {
     .map(({ _real, _hits, _recall, ...r }) => r);
 }
 
-// 사진이 많을 때: 서버는 최대 MAX_DB 장까지 받고, AI 에는 AI_DB 장까지만 보낸다.
-// 넘치면 기억 문장·답의 낱말이 사진 정보에 많이 나오는 사진부터 고른다 (AI 호출 없이, 매번 같은 결과).
-const MAX_DB = 2000;
-const AI_DB = 300;
-const JOSA = /(에서|에게|으로|이랑|하고|까지|부터|처럼|이나|에|로|을|를|이|가|은|는|와|과|랑|의|도|만)$/;
-const STOP_WORDS = new Set(['그', '날', '때', '것', '거', '좀', '사진', '그때', '그날', '있던', '했던', '먹은', '찍은', '같은', '모아줘', '보여줘', '찾아줘']);
-const lexWords = texts => {
-  const out = new Set();
-  for (const t of texts) {
-    for (const w of String(t || '').toLowerCase().split(/[\s,.!?~"'()/:·→]+/)) {
-      for (const v of [w, w.replace(JOSA, '')]) if (v && !STOP_WORDS.has(v) && (v.length >= 2 || /^[가-힣]$/.test(v))) out.add(v);
-    }
-  }
-  return [...out];
-};
-function narrowDb(db, words, n = AI_DB) {
-  if (db.length <= n) return db;
-  const score = d => { const t = photoWords(d); return words.filter(w => t.includes(w)).length; };
-  return db.map(d => [d, score(d)])
-    .sort((x, y) => y[1] - x[1] || String(y[0].date || '').localeCompare(String(x[0].date || '')) || Number(x[0].id) - Number(y[0].id))
-    .slice(0, n).map(x => x[0]);
-}
-
 async function search(b) {
-  if (!Array.isArray(b.db) || !Array.isArray(b.hist) || b.db.length > MAX_DB) return [400, { error: 'bad_request' }];
+  if (!Array.isArray(b.db) || !Array.isArray(b.hist) || b.db.length > 300) return [400, { error: 'bad_request' }];
+  const db = b.db.map(slimPhoto); // 썸네일·구조화 정보는 모델에 보내지 않음
   const hist = b.hist.slice(-12);
-  // 썸네일·구조화 정보는 모델에 보내지 않음. 300장이 넘으면 기억 문장·답과 낱말이 많이 겹치는 300장만
-  const said = [hist[0], ...hist.slice(1).map(h => String(h).match(/\/\s*A:\s*(.+)$/)?.[1])];
-  const db = narrowDb(b.db.map(slimPhoto), lexWords(said));
   const want = b.wantQuestion === true;
   const asked = askedQuestions(hist);
   let result = await ask([{ type: 'input_text', text: searchPrompt(db, hist, want ? WANT_Q : '') }], { temperature: 0 });
@@ -340,24 +315,24 @@ const albumParsePrompt = (request, cats) => {
   const today = new Date().toISOString().slice(0, 10);
   const y = Number(today.slice(0, 4));
   return '스마트 갤러리 앨범 요청을 조건으로 해석해 JSON만 출력하라. 오늘은 ' + today + '.\n' +
-  '[규칙]\n' +
-  '- place.terms: 요청의 장소를 사진 주소(시·구·동 행정 주소)에 나올 이름으로 펼친다. 생활권 지명은 그 지역의 행정동 이름들로 펼치고 원래 지명도 넣는다. 확실한 이름만 넣고, 구 이름은 그 지명이 확실히 속한 구일 때만 넣는다.\n' +
-  '- time: "올여름·작년·10월·이번 달·최근" 같은 시간 표현은 오늘 기준 날짜 범위(from·to, YYYY-MM-DD)로 바꾼다. 여름=6~8월, 봄=3~5월, 가을=9~11월, 겨울=12~2월.\n' +
-  '- topic: 무엇을 찍은 사진인지. 요청의 구체적인 대상을 그대로 살리고 넓히지 않는다(예: "패스트푸드" → "햄버거·감자튀김 같은 패스트푸드가 보이는 사진"). ' +
-  '"먹은 것·음식"처럼 요청 자체가 넓으면 "음식이 보이는 사진"으로 쓰고 topic_broad=true.\n' +
-  '- topic_terms: topic 에 해당하는 구체적인 물건·음식·장소 이름 8~20개. 사진 정보(음식 이름·키워드·캡션)에 그대로 나올 법한 낱말로 쓴다.\n' +
-  '- kind: 요청이 구체적인 대상(음식·물건·장소·사람·행동)이면 "object", 분위기·감성·느낌(따뜻한·쓸쓸한·몽환적인·청량한·평화로운 등)이면 "mood".\n' +
-  '- kind=mood 일 때: topic 은 그 분위기를 한 구절로, topic_terms 는 빈 배열. mood_cues 에 그 분위기를 만드는 **사진에 실제로 보이는** 단서 8~15개를 쓴다(빛·색·날씨·시간대·장소·사물 이름, 예: 노을, 햇살, 촛불, 비, 안개, 밤, 네온). 형용사·감정 낱말(따뜻한, 감성, 예쁜)은 넣지 않는다. kind=object 면 mood_cues 는 빈 배열.\n' +
-  '- exclude: "~은 빼고" 조건, exclude_terms 는 그 대상의 이름들. 요청에 없는 조건은 null·빈 배열·has=false.\n' +
-  '[예시]\n' +
-  '요청 "작년 여름 신촌에서 먹은 음식" → {"title":"작년 여름 신촌 맛집","place":{"has":true,"terms":["신촌","창천동","신촌동","대현동","대신동","노고산동"]},"time":{"from":"' + (y - 1) + '-06-01","to":"' + (y - 1) + '-08-31"},"topic":"음식이 보이는 사진","kind":"object","topic_broad":true,"topic_terms":[],"mood_cues":[],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '요청 "패스트푸드 사진" → {"title":"패스트푸드 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"햄버거·감자튀김 같은 패스트푸드가 보이는 사진","topic_broad":false,"topic_terms":["햄버거","버거","감자튀김","치킨너겟","너겟","피자","핫도그","프라이드치킨"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '요청 "고기 먹은 사진" → {"title":"고기 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"고기 요리가 보이는 사진","topic_broad":false,"topic_terms":["고기","삼겹살","목살","스테이크","갈비","불고기","닭갈비","치킨","보쌈","족발","햄버거"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '요청 "바다 사진" → {"title":"바다","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"바다가 보이는 사진","topic_broad":false,"topic_terms":["바다","해변","해수욕장","파도","해안","바닷가","모래사장"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '요청 "홍대에서 찍은 사진 중 음식은 빼고" → {"title":"홍대의 순간들","place":{"has":true,"terms":["홍대","서교동","동교동","합정동","연남동"]},"time":{"from":null,"to":null},"kind":"object","topic":null,"topic_broad":false,"topic_terms":[],"exclude":"음식이 주제인 사진","exclude_terms":[],"category":"memories"}\n' +
-  '요청 "따뜻한 분위기 사진" → {"title":"따뜻한 순간들","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"mood","topic":"따뜻하고 포근한 분위기","topic_broad":false,"topic_terms":[],"mood_cues":["노을","석양","햇살","주황빛","노란 조명","촛불","벽난로","담요","따뜻한 음료","카페","저녁"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '요청 "쓸쓸한 느낌의 사진" → {"title":"쓸쓸한 장면","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"mood","topic":"쓸쓸하고 고요한 분위기","topic_broad":false,"topic_terms":[],"mood_cues":["비","흐림","안개","빈 거리","빈 벤치","홀로","가로등","밤","낙엽","겨울","회색 하늘"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
-  '카테고리(category 는 이 중 id 하나):' + JSON.stringify(cats) + '\n요청:' + JSON.stringify(request) + '\nJSON:';
+    '[규칙]\n' +
+    '- place.terms: 요청의 장소를 사진 주소(시·구·동 행정 주소)에 나올 이름으로 펼친다. 생활권 지명은 그 지역의 행정동 이름들로 펼치고 원래 지명도 넣는다. 확실한 이름만 넣고, 구 이름은 그 지명이 확실히 속한 구일 때만 넣는다.\n' +
+    '- time: "올여름·작년·10월·이번 달·최근" 같은 시간 표현은 오늘 기준 날짜 범위(from·to, YYYY-MM-DD)로 바꾼다. 여름=6~8월, 봄=3~5월, 가을=9~11월, 겨울=12~2월.\n' +
+    '- topic: 무엇을 찍은 사진인지. 요청의 구체적인 대상을 그대로 살리고 넓히지 않는다(예: "패스트푸드" → "햄버거·감자튀김 같은 패스트푸드가 보이는 사진"). ' +
+    '"먹은 것·음식"처럼 요청 자체가 넓으면 "음식이 보이는 사진"으로 쓰고 topic_broad=true.\n' +
+    '- topic_terms: topic 에 해당하는 구체적인 물건·음식·장소 이름 8~20개. 사진 정보(음식 이름·키워드·캡션)에 그대로 나올 법한 낱말로 쓴다.\n' +
+    '- kind: 요청이 구체적인 대상(음식·물건·장소·사람·행동)이면 "object", 분위기·감성·느낌(따뜻한·쓸쓸한·몽환적인·청량한·평화로운 등)이면 "mood".\n' +
+    '- kind=mood 일 때: topic 은 그 분위기를 한 구절로, topic_terms 는 빈 배열. mood_cues 에 그 분위기를 만드는 **사진에 실제로 보이는** 단서 8~15개를 쓴다(빛·색·날씨·시간대·장소·사물 이름, 예: 노을, 햇살, 촛불, 비, 안개, 밤, 네온). 형용사·감정 낱말(따뜻한, 감성, 예쁜)은 넣지 않는다. kind=object 면 mood_cues 는 빈 배열.\n' +
+    '- exclude: "~은 빼고" 조건, exclude_terms 는 그 대상의 이름들. 요청에 없는 조건은 null·빈 배열·has=false.\n' +
+    '[예시]\n' +
+    '요청 "작년 여름 신촌에서 먹은 음식" → {"title":"작년 여름 신촌 맛집","place":{"has":true,"terms":["신촌","창천동","신촌동","대현동","대신동","노고산동"]},"time":{"from":"' + (y - 1) + '-06-01","to":"' + (y - 1) + '-08-31"},"topic":"음식이 보이는 사진","kind":"object","topic_broad":true,"topic_terms":[],"mood_cues":[],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '요청 "패스트푸드 사진" → {"title":"패스트푸드 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"햄버거·감자튀김 같은 패스트푸드가 보이는 사진","topic_broad":false,"topic_terms":["햄버거","버거","감자튀김","치킨너겟","너겟","피자","핫도그","프라이드치킨"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '요청 "고기 먹은 사진" → {"title":"고기 모음","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"고기 요리가 보이는 사진","topic_broad":false,"topic_terms":["고기","삼겹살","목살","스테이크","갈비","불고기","닭갈비","치킨","보쌈","족발","햄버거"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '요청 "바다 사진" → {"title":"바다","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"object","topic":"바다가 보이는 사진","topic_broad":false,"topic_terms":["바다","해변","해수욕장","파도","해안","바닷가","모래사장"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '요청 "홍대에서 찍은 사진 중 음식은 빼고" → {"title":"홍대의 순간들","place":{"has":true,"terms":["홍대","서교동","동교동","합정동","연남동"]},"time":{"from":null,"to":null},"kind":"object","topic":null,"topic_broad":false,"topic_terms":[],"exclude":"음식이 주제인 사진","exclude_terms":[],"category":"memories"}\n' +
+    '요청 "따뜻한 분위기 사진" → {"title":"따뜻한 순간들","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"mood","topic":"따뜻하고 포근한 분위기","topic_broad":false,"topic_terms":[],"mood_cues":["노을","석양","햇살","주황빛","노란 조명","촛불","벽난로","담요","따뜻한 음료","카페","저녁"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '요청 "쓸쓸한 느낌의 사진" → {"title":"쓸쓸한 장면","place":{"has":false,"terms":[]},"time":{"from":null,"to":null},"kind":"mood","topic":"쓸쓸하고 고요한 분위기","topic_broad":false,"topic_terms":[],"mood_cues":["비","흐림","안개","빈 거리","빈 벤치","홀로","가로등","밤","낙엽","겨울","회색 하늘"],"exclude":null,"exclude_terms":[],"category":"memories"}\n' +
+    '카테고리(category 는 이 중 id 하나):' + JSON.stringify(cats) + '\n요청:' + JSON.stringify(request) + '\nJSON:';
 };
 
 // 주제는 엄격하게: 사진마다 yes/maybe/no 판정과 '사진 정보에 그대로 있는' 근거 낱말을 받는다.
@@ -378,13 +353,12 @@ const albumPickPrompt = (db, topic, exclude, mood) =>
   '[판정 기준]\n' +
   (mood
     ? '- yes: 사진 정보(caption·background·weather·time·place 등)에 그 분위기를 만드는 시각 단서가 직접 적혀 있다. 단서가 없거나 다른 분위기(예: 밝고 신나는 장면에 "쓸쓸한")면 no. 짐작만 가능하면 maybe.\n' +
-      '- 사진에 무엇이 찍혔는지가 아니라 사진 정보에 적힌 빛·색·날씨·시간·장면으로만 판단한다.\n'
+    '- 사진에 무엇이 찍혔는지가 아니라 사진 정보에 적힌 빛·색·날씨·시간·장면으로만 판단한다.\n'
     : '- yes: 조건의 구체적인 대상(또는 그 대상에 일반적으로 속하는 것)이 사진 정보에 직접 나온다. 넓은 범주만 같으면 no(예: 조건이 "패스트푸드"인데 파스타·케이크). 애매하면 maybe.\n') +
-  '- evidence 에는 판정 근거가 된 낱말을 사진 정보에서 **글자 그대로** 복사해 배열로 적는다(최대 3개). 사진 정보에 없는 말은 쓰지 않는다.\n' +
-  '- 응답을 짧게: matches 에는 yes·maybe 인 사진만 넣고 no 인 사진은 넣지 않는다. 제외 조건에 해당하는 사진은 excluded 에 id 만 적는다.\n' +
+  '- evidence 에는 판정 근거가 된 낱말을 사진 정보에서 **글자 그대로** 복사해 배열로 적는다(최대 4개). 사진 정보에 없는 말은 쓰지 않는다.\n' +
   '사진 정보:' + JSON.stringify(db.map(pickView)) + '\n' +
-  '{"matches":[{"id":사진 id,"verdict":"yes|maybe","evidence":["낱말"]}],"excluded":[사진 id]}';
-const PICK_BATCH = 50;
+  '{"checks":[{"id":사진 id,"verdict":"yes|maybe|no","evidence":["낱말"],"excluded":false}]}';
+const PICK_BATCH = 25;
 // 판정에 쓰인 사진 정보의 지문 — 다시 분석해 정보가 바뀌면 판정을 새로 받는다
 const photoPrint = d => {
   const str = JSON.stringify(pickView(d));
@@ -396,7 +370,7 @@ const INFO_TYPES = new Set([...TEXT_DENSE, 'artwork']);
 
 async function album(b) {
   const request = typeof b.request === 'string' ? b.request.trim().slice(0, 500) : '';
-  if (!request || !Array.isArray(b.db) || b.db.length > MAX_DB) return [400, { error: 'bad_request' }];
+  if (!request || !Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
   const db = b.db.map(slimPhoto);
   const cats = cleanCats(b.categories);
   // 1) 요청 → 조건. 앱이 같은 요청 문장으로 전에 받은 조건(plan)을 보내면 그대로 써서 매번 같은 결과가 나오게 한다
@@ -428,9 +402,11 @@ async function album(b) {
     cand = cand.filter(hit);
     if (!cand.length) {
       const located = db.filter(d => d.addr).length;
-      return [200, { title, ids: [], category, plan, reason: located
-        ? `'${terms[0]}'에서 찍은 사진을 찾지 못했어요.`
-        : '위치 정보가 있는 사진이 없어 장소로 찾을 수 없어요.' }];
+      return [200, {
+        title, ids: [], category, plan, reason: located
+          ? `'${terms[0]}'에서 찍은 사진을 찾지 못했어요.`
+          : '위치 정보가 있는 사진이 없어 장소로 찾을 수 없어요.'
+      }];
     }
   }
   const from = /^\d{4}-\d{2}-\d{2}$/.test(q.time?.from || '') ? q.time.from : null;
@@ -463,27 +439,13 @@ async function album(b) {
     // AI 판정이 필요한 사진: 확실한 사진(제외 조건이 없을 때)은 빼고, 이 요청으로 이미 판정한 사진도 다시 묻지 않는다
     const need = d => !sure.has(Number(d.id)) || exclude;
     const memo = d => { const m = prevSeen[d.id]; return Array.isArray(m) && m[0] === photoPrint(d) ? m[1] === 1 : null; };
-    // 판정할 사진이 300장을 넘으면 주제 낱말이 많이 겹치는 300장만 AI 가 판정 (나머지는 확실한 사진이 아니면 제외,
-    // 주제 없이 제외 조건만 있는 요청이면 규칙으로만 거르고 유지)
-    const toCheck = narrowDb(cand.filter(d => need(d) && memo(d) === null),
-      lexWords([topic, ...words(q.topic_terms), ...moodCues, request]));
-    // 50장씩 나눠 판정 (맞는 사진만 답하게 해서 응답이 짧다)
+    const toCheck = cand.filter(d => need(d) && memo(d) === null);
+    // 25장씩 나눠 판정 (프롬프트가 짧을수록 판정이 안정적)
     const batches = [];
     for (let i = 0; i < toCheck.length; i += PICK_BATCH) batches.push(toCheck.slice(i, i + PICK_BATCH));
     const results = await Promise.all(batches.map(part =>
       ask([{ type: 'input_text', text: albumPickPrompt(part, topic, exclude, mood) }], { temperature: 0 })));
-    // 판정한 사진마다 { verdict, evidence, excluded } — 답에 없는 사진은 no
-    const checks = new Map(toCheck.map(d => [Number(d.id), { verdict: 'no', evidence: [], excluded: false }]));
-    for (const r of results) {
-      for (const m of Array.isArray(r.matches) ? r.matches : []) {
-        const c = m && checks.get(Number(m.id));
-        if (c) Object.assign(c, { verdict: m.verdict === 'yes' ? 'yes' : 'maybe', evidence: Array.isArray(m.evidence) ? m.evidence : [] });
-      }
-      for (const id of Array.isArray(r.excluded) ? r.excluded : []) {
-        const c = checks.get(Number(id));
-        if (c) c.excluded = true;
-      }
-    }
+    const checks = new Map(results.flatMap(r => (Array.isArray(r.checks) ? r.checks : [])).filter(Boolean).map(c => [Number(c.id), c]));
     // AI 기준으로 넣을지: 제외 조건에 안 걸리고, yes 이면서 그 근거 낱말이 실제 사진 정보에 있을 때만
     // (대충 관련된 사진·지어낸 근거는 제외)
     const aiKeep = d => {
@@ -598,10 +560,9 @@ const suggestPrompt = db =>
   '\nJSON만 출력: {"suggestions":["문장1","문장2","문장3"]}';
 
 async function suggest(b) {
-  if (!Array.isArray(b.db) || b.db.length > MAX_DB) return [400, { error: 'bad_request' }];
+  if (!Array.isArray(b.db) || b.db.length > 300) return [400, { error: 'bad_request' }];
   if (b.db.length === 0) return [200, { suggestions: [] }];
-  // 사진이 많으면 최근 300장으로 제안
-  const db = [...b.db].sort((x, y) => String(y.date || '').localeCompare(String(x.date || ''))).slice(0, AI_DB).map(slimPhoto);
+  const db = b.db.map(slimPhoto);
   const r = await ask([{ type: 'input_text', text: suggestPrompt(db) }]);
   const suggestions = [...new Set((Array.isArray(r.suggestions) ? r.suggestions : [])
     .map(x => String(x || '').trim().slice(0, 30)).filter(Boolean))].slice(0, 3);
@@ -682,6 +643,6 @@ export async function handleApi(req, res, route) {
   } catch (e) {
     const c = e.code || (e.message === 'too big' ? 'too_big' : e instanceof SyntaxError ? 'bad_request' : 'server_error');
     console.error('요청 실패:', c, hide(e.message));
-    try { send(res, c === 'too_big' ? 413 : c === 'bad_request' ? 400 : e.code ? 502 : 500, { error: c }); } catch {}
+    try { send(res, c === 'too_big' ? 413 : c === 'bad_request' ? 400 : e.code ? 502 : 500, { error: c }); } catch { }
   }
 }
