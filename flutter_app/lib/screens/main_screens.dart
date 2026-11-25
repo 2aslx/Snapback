@@ -9,7 +9,6 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/snap_runner.dart';
-import '../widgets/photo_image.dart';
 import '../widgets/map_popup.dart';
 import '../widgets/share_photo.dart';
 import 'record_screens.dart';
@@ -797,26 +796,22 @@ class Screen9PrototypeResults extends StatelessWidget {
               leading: const IconBadge('cake', gradIndex: 0),
               title: '성수동 카페 · 2026.10.15',
               subtitle: '✓ 비 오는 날 ✓ 창가 ✓ 디저트 · 성수동',
-              trailingText: '92%',
               onTap: () => s.go(10),
             ),
             const SnapRow(
               leading: IconBadge('bread', gradIndex: 2),
               title: '합정 베이커리 · 2026.07.02',
               subtitle: '✓ 디저트 ✓ 창가 · 비 정보 없음',
-              trailingText: '71%',
             ),
             const SnapRow(
               leading: IconBadge('bowl', gradIndex: 4),
               title: '연남동 카페 · 2025.06.21',
               subtitle: '✓ 디저트 · 위치 확인 불가',
-              trailingText: '58%',
             ),
             const SnapRow(
               leading: IconBadge('cup', gradIndex: 1),
               title: '서촌 찻집 · 2025.04.09',
               subtitle: '✓ 창가 · 디저트 낮은 확신',
-              trailingText: '44%',
             ),
           ],
         ),
@@ -2217,6 +2212,13 @@ class _Screen13SearchState extends State<Screen13Search>
     }
     if (s.searchResults.isEmpty) {
       if (s.searchBusy) return const SnapNote('AI가 기억을 더듬는 중…');
+      // 질문에 답하며 후보를 제외하다 남은 후보가 없을 때
+      if (s.searchHistory.length > 1) {
+        return const SnapEmpty(
+          icon: 'sparkle',
+          text: '남은 후보 중에 맞는 사진이 없어요.\n기억나는 장면을 다시 적어 새로 검색해 보세요.',
+        );
+      }
       return SnapEmpty(
         icon: 'sparkle',
         text: s.testSession != null
@@ -2237,11 +2239,19 @@ class _Screen13SearchState extends State<Screen13Search>
     );
     final pinned = top.id != valid.first.id;
     final topPhoto = byId[top.id]!;
-    // 다른 후보: 가장 유력한 사진과 카테고리나 키워드가 하나라도 같은 사진만
-    final rest = valid
-        .where((x) => x.id != top.id)
-        .where((x) => SnapbackState.sharesTopic(topPhoto, byId[x.id]!))
-        .toList();
+    // 다른 후보: 1순위 일치도가 85% 이상이면 없음(그 사진 하나만).
+    // 85% 미만이면 일치도 60~85% 사진을 일치도 순으로 (지금 크게 보고 있는 사진은 제외)
+    final sure = valid.first.score >= SnapbackState.kSureScore;
+    final rest = sure
+        ? <SearchRankedItem>[]
+        : valid
+              .where((x) => x.id != top.id)
+              .where(
+                (x) =>
+                    x.score >= SnapbackState.kMinScore &&
+                    x.score < SnapbackState.kSureScore,
+              )
+              .toList();
     // 답변 기록 (Q: … / A: …) — 지금까지 더한 기억 단서
     final answers = s.searchHistory
         .skip(1)
@@ -2304,41 +2314,17 @@ class _Screen13SearchState extends State<Screen13Search>
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: c.soft,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  '일치 확률 ${top.score}%',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: c.pk,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${topPhoto.place} · ${topPhoto.date}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.3,
-                    color: c.ink,
-                  ),
-                ),
-              ),
-            ],
+          // 일치 확률은 보여 주지 않음 (내부 기준에만 사용)
+          Text(
+            '${topPhoto.place} · ${topPhoto.date}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.3,
+              color: c.ink,
+            ),
           ),
           if (clues(top).isNotEmpty)
             Padding(
@@ -2396,50 +2382,37 @@ class _Screen13SearchState extends State<Screen13Search>
               onSubmit: _sendAnswer,
             ),
           ] else ...[
-            const SnapNote('더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.'),
+            SnapNote(
+              rest.isEmpty
+                  ? '더 구분할 질문이 없어요.'
+                  : '더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.',
+            ),
             SnapButton(
               label: '맞아요',
               icon: 'check',
               onTap: () => s.openMemory(top.id),
             ),
           ],
-          // 다른 후보 (작게)
+          // 다른 후보: 3열 바둑판, 일치도 순 (일치도는 표시하지 않음)
           if (rest.isNotEmpty) ...[
             const SnapH3('다른 후보'),
-            SnapGroup(
-              top: 0,
-              separatorInset: 86,
-              children: [
-                for (final x in rest)
-                  SnapRow(
-                    leading: IconBadge(
-                      byId[x.id]!.icon,
-                      gradIndex: x.id,
-                      size: 58,
-                      radius: 10,
-                      image: photoImageProvider(byId[x.id]!, logicalSize: 58),
-                    ),
-                    title: byId[x.id]!.place,
-                    subtitle: byId[x.id]!.date,
-                    subtitle2: clues(x).isEmpty ? null : clues(x),
-                    trailingText: '${x.score}%',
-                    // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
-                    onTap: () {
-                      s.pinResult(x.id);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        final ctx = _topResultKey.currentContext;
-                        if (ctx != null) {
-                          Scrollable.ensureVisible(
-                            ctx,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOutCubic,
-                            alignment: 0.1,
-                          );
-                        }
-                      });
-                    },
-                  ),
-              ],
+            PhotoGrid(
+              items: [for (final x in rest) byId[x.id]!],
+              // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
+              onTap: (d) {
+                s.pinResult(d.id);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final ctx = _topResultKey.currentContext;
+                  if (ctx != null) {
+                    Scrollable.ensureVisible(
+                      ctx,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                      alignment: 0.1,
+                    );
+                  }
+                });
+              },
             ),
           ],
         ],

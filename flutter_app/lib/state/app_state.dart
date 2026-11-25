@@ -223,8 +223,23 @@ class SnapbackState extends ChangeNotifier {
 
   /// 처음 검색의 상위 30개 후보 id. 질문에 답한 뒤에는 이 후보 안에서만 다시 찾는다.
   final List<int> searchPool = [];
+
+  /// 질문에 답할 때 크게 보고 있던 사진 (맞다고 하지 않았으므로 다음 검색에서 제외, 답할수록 쌓임)
+  final Set<int> searchExcluded = {};
+
+  /// 지금 검색 화면에서 크게 보여 주는 사진: 고른 후보, 없으면 일치도 1순위
+  int? get shownResultId {
+    if (pinnedResultId != null) return pinnedResultId;
+    if (searchResults.isEmpty) return null;
+    return searchResults.reduce((a, b) => b.score > a.score ? b : a).id;
+  }
   String currentQuestionText = '';
   List<SearchRankedItem> searchResults = [];
+
+  /// 검색 일치도 기준 (점수는 화면에 보여 주지 않고 이 기준에만 쓴다)
+  /// 1순위가 [kSureScore] 이상이면 그 사진 하나만, 아니면 [kMinScore] 이상 후보를 아래에 함께 보여 준다.
+  static const kSureScore = 85;
+  static const kMinScore = 60;
   SearchQuestion? activeQuestion;
   bool searchCompleted = false;
   bool searchBusy = false;
@@ -993,6 +1008,7 @@ class SnapbackState extends ChangeNotifier {
     _searchRunId++; // 진행 중이던 검색 결과는 무시
     searchHistory.clear();
     searchPool.clear();
+    searchExcluded.clear();
     searchResults = [];
     activeQuestion = null;
     currentQuestionText = '';
@@ -1842,11 +1858,14 @@ class SnapbackState extends ChangeNotifier {
       ..clear()
       ..add(q);
     searchPool.clear();
+    searchExcluded.clear();
     await _runSearch();
   }
 
   Future<void> answerFollowUp(String answer) async {
     if (searchBusy) return;
+    // 답하기 전에 크게 보고 있던 사진은 아니라는 뜻 → 제외하고 나머지 후보에서 찾는다
+    if (shownResultId case final id?) searchExcluded.add(id);
     searchHistory.add('Q: $currentQuestionText / A: $answer');
     if (testSession != null) testSession!.questions++;
     await _runSearch(withinPool: true);
@@ -1897,9 +1916,11 @@ class SnapbackState extends ChangeNotifier {
     final run = _searchRunId;
     final inPool = withinPool && searchPool.isNotEmpty;
     final pool = searchPool.toSet();
-    final photos = inPool
-        ? visiblePhotos.where((d) => pool.contains(d.id)).toList()
-        : visiblePhotos;
+    final photos = [
+      for (final d in visiblePhotos)
+        if ((!inPool || pool.contains(d.id)) && !searchExcluded.contains(d.id))
+          d,
+    ];
     try {
       final key = SnapbackApi.searchKey(
         photos,
@@ -1924,7 +1945,7 @@ class SnapbackState extends ChangeNotifier {
           ..clear()
           ..addAll(res.pool);
       }
-      searchResults = res.ranked.take(5).toList();
+      searchResults = res.ranked.toList();
       pinnedResultId = null; // 순위가 새로 나오면 다시 1순위부터
       if (testSession != null && testSession!.firstRank == null) {
         final idx = searchResults.indexWhere(

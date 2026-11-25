@@ -238,7 +238,7 @@ const WANT_Q = '사용자가 추가 질문을 요청했다. 현재 상위 후보
 // 검색 순위를 서버가 일정하게 정한다: AI 점수를 5점 단위로 묶고 → 실제 사진 정보에 있는 단서가 많은 순 → 사진 id 순.
 // AI 가 댄 단서 중 그 사진 정보에 없는 것(지어낸 근거)은 하나당 10점 감점, 하나도 없으면 40점 이하로 내린다.
 // 사용자가 질문에 답한 낱말이 사진 정보에 있는 사진을 먼저 세운다 (AI 가 답을 놓쳐도 답과 맞는 사진이 위로).
-const SEARCH_TOP = 10;  // 화면에 쓰는 순위
+const SEARCH_TOP = 30;  // 앱에 보내는 순위 (앱이 일치도 60~85% 후보를 모두 보여 줌)
 const SEARCH_POOL = 30; // 답한 뒤 다시 찾을 후보 범위 (pool)
 const photoWords = d => Object.entries(d).filter(([k]) => k !== 'id')
   .flatMap(([, v]) => (Array.isArray(v) ? v : [v])).filter(v => typeof v === 'string').join(' ').toLowerCase();
