@@ -34,6 +34,7 @@ class PhotoItem {
     this.suggestedRecordType = '',
     this.structuredData = const {},
     this.recallKeywords = const [],
+    this.recallPending = const [],
     this.recallPhrase = '',
   });
 
@@ -106,24 +107,41 @@ class PhotoItem {
   /// 유형별 구조화 정보 (예: 제품 목록, 시험명·등급, 항목·수치·단위). 기기 저장 최대 약 1.5KB
   final Map<String, dynamic> structuredData;
 
-  /// '맞아요'로 찾은 기억에서 뽑은 키워드 (사용자가 확인한 사실, 최근 것이 앞, 최대 12개).
-  /// 다시 분석해도 유지되고, 검색·앨범 때 사진 정보와 함께 AI 에 보낸다.
+  /// '맞아요'로 찾은 기억에서 뽑은 **확정** 키워드 — 서로 다른 두 검색에서 나온 낱말 (최근 것이 앞, 최대 12개).
+  /// 다시 분석해도 유지되고, 검색·앨범 때 사진 정보와 함께 AI 에 보내 순위에 쓴다.
   final List<String> recallKeywords;
 
-  /// 마지막으로 이 사진을 찾을 때 쓴 기억 문장
+  /// **대기** 키워드 — 한 번만 나온 낱말 (잘못 기억했을 수 있음). 기기에만 저장하고 AI·순위에는 쓰지 않는다.
+  /// 다른 검색에서 같은 사진을 '맞아요' 하며 같은 낱말이 또 나오면 확정으로 옮긴다. 최대 20개.
+  final List<String> recallPending;
+
+  /// 마지막으로 이 사진을 찾을 때 쓴 기억 문장 (같은 문장으로 다시 찾으면 바로 1순위)
   final String recallPhrase;
 
-  /// '맞아요'로 찾은 키워드를 더한 사진 (새 키워드가 앞, 중복 제거, 최대 12개)
+  /// '맞아요'로 찾은 키워드 반영: 대기에 있던 낱말이 다시 나오면 확정, 처음 나온 낱말은 대기.
+  /// 같은 문장으로 다시 찾은 경우는 '다른 검색'이 아니므로 확정하지 않는다.
   PhotoItem withRecall(List<String> keywords, String phrase) {
-    final merged = <String>[];
-    for (final k in [...keywords, ...recallKeywords]) {
-      final t = k.trim();
-      if (t.isEmpty || merged.contains(t)) continue;
-      merged.add(t);
+    String norm(String v) => v.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    final sameSearch =
+        recallPhrase.isNotEmpty && norm(recallPhrase) == norm(phrase);
+    final confirmed = [...recallKeywords];
+    final pending = [...recallPending];
+    for (final k in keywords.map((e) => e.trim()).toSet()) {
+      if (k.isEmpty) continue;
+      if (confirmed.remove(k)) {
+        confirmed.insert(0, k); // 이미 확정 → 최근으로
+      } else if (!sameSearch && pending.remove(k)) {
+        confirmed.insert(0, k); // 다른 검색에서 또 나옴 → 확정
+      } else {
+        pending
+          ..remove(k)
+          ..insert(0, k); // 처음 나옴 → 대기
+      }
     }
     return PhotoItem.fromJson({
       ...toJson(),
-      'rk': merged.take(12).toList(),
+      'rk': confirmed.take(12).toList(),
+      'rp': pending.take(20).toList(),
       'rq': _cut(phrase.trim(), 120),
     });
   }
@@ -168,6 +186,7 @@ class PhotoItem {
         if (includeThumb && structuredData.isNotEmpty) 'data': structuredData,
         // '맞아요'로 확인한 기억 — 기기에도 저장하고 검색·앨범 AI 에도 보낸다
         if (recallKeywords.isNotEmpty) 'rk': recallKeywords,
+        if (includeThumb && recallPending.isNotEmpty) 'rp': recallPending,
         if (recallPhrase.isNotEmpty) 'rq': recallPhrase,
       };
 
@@ -211,6 +230,7 @@ class PhotoItem {
       suggestedRecordType: s('suggested_record_type'),
       structuredData: structured,
       recallKeywords: recallKeywords,
+      recallPending: recallPending,
       recallPhrase: recallPhrase,
     );
   }
@@ -261,6 +281,7 @@ class PhotoItem {
       suggestedRecordType: (j['rec'] ?? '').toString(),
       structuredData: j['data'] is Map ? Map<String, dynamic>.from(j['data'] as Map) : const {},
       recallKeywords: _strList(j['rk']),
+      recallPending: _strList(j['rp']),
       recallPhrase: (j['rq'] ?? '').toString(),
     );
   }

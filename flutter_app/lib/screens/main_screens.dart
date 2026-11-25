@@ -37,6 +37,84 @@ class _Screen5HomeState extends State<Screen5Home>
     setState(() => _sel.contains(d.id) ? _sel.remove(d.id) : _sel.add(d.id));
   }
 
+  /// 사진 정렬 기준 고르기 (팝업): 시간순 / 추가순
+  Future<void> _pickSort(SnapbackState s) async {
+    final c = context.sc;
+    const options = [
+      ('time', '시간순', '찍은 날짜가 최근인 사진부터, 월별로'),
+      ('added', '추가순', '앱에 최근 추가한 사진부터'),
+    ];
+    final picked = await showDialog<String>(
+      context: context,
+      barrierColor: const Color(0x66000000),
+      builder: (ctx) => Dialog(
+        backgroundColor: c.bg,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Text(
+                  '정렬 기준',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: c.ink,
+                  ),
+                ),
+              ),
+              for (final (id, label, hint) in options)
+                Pressable(
+                  onTap: () => Navigator.of(ctx).pop(id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: s.photoSort == id
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
+                                  color: s.photoSort == id ? c.pk : c.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                hint,
+                                style: TextStyle(fontSize: 13, color: c.mute),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (s.photoSort == id)
+                          SnapIcon('check', size: 18, color: c.pk),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) s.setPhotoSort(picked);
+  }
+
   Future<void> _deleteSelected(SnapbackState s) async {
     final n = _sel.length;
     final ok = await showSnapConfirm(
@@ -89,10 +167,17 @@ class _Screen5HomeState extends State<Screen5Home>
   @override
   Widget build(BuildContext context) {
     final s = widget.state;
-    // 월별 묶음 (최신 월부터)
+    // 정렬: 시간순(촬영 날짜, 월별 묶음) / 추가순(앱에 추가한 순서 — id 가 클수록 나중에 추가)
+    final byAdded = s.photoSort == 'added';
     final groups = <String, List<PhotoItem>>{};
     final photos = s.visiblePhotos.toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort(
+        (a, b) => byAdded
+            ? b.id.compareTo(a.id)
+            : b.date.compareTo(a.date) == 0
+            ? b.id.compareTo(a.id)
+            : b.date.compareTo(a.date),
+      );
     for (final d in photos) {
       groups.putIfAbsent(d.date.substring(0, 7), () => []).add(d);
     }
@@ -200,6 +285,28 @@ class _Screen5HomeState extends State<Screen5Home>
                           ),
                         ),
                       ),
+                      // 정렬 기준: 시간순 / 추가순
+                      Pressable(
+                        onTap: () => _pickSort(s),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                byAdded ? '추가순' : '시간순',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.sc.pk,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              SnapIcon('down', size: 14, color: context.sc.pk),
+                            ],
+                          ),
+                        ),
+                      ),
                       // 편집: 사진을 골라 앱에서 지우기 (원본은 그대로)
                       Pressable(
                         onTap: () => setState(() {
@@ -285,6 +392,12 @@ class _Screen5HomeState extends State<Screen5Home>
                 if (!_showAll)
                   PhotoGrid(
                     items: photos.take(9).toList(),
+                    selected: _editing ? _sel : null,
+                    onTap: (d) => _tapPhoto(s, d),
+                  )
+                else if (byAdded)
+                  PhotoGrid(
+                    items: photos,
                     selected: _editing ? _sel : null,
                     onTap: (d) => _tapPhoto(s, d),
                   )

@@ -119,6 +119,7 @@ class SnapbackState extends ChangeNotifier {
   static const _queueKey = 'snapback_queue';
   static const _removedKey = 'snapback_removed';
   static const _albumPlansKey = 'snapback_album_plans';
+  static const _photoSortKey = 'snapback_photo_sort';
   static const _searchCacheKey = 'snapback_search_cache';
 
   /// 같은 검색(같은 대화 기록 + 같은 사진 정보)은 저장해 둔 결과를 그대로 보여 준다 (최근 30개).
@@ -310,6 +311,7 @@ class SnapbackState extends ChangeNotifier {
         });
       } catch (_) {}
     }
+    if (prefs.getString(_photoSortKey) case final v?) photoSort = v;
     final rawPlans = prefs.getString(_albumPlansKey);
     if (rawPlans != null && rawPlans.isNotEmpty) {
       try {
@@ -482,6 +484,7 @@ class SnapbackState extends ChangeNotifier {
     pinnedResultId = null;
     albumFilter = null;
     recordsView = 'default';
+    photoSort = 'time';
     scopeReturn = 0;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -496,6 +499,7 @@ class SnapbackState extends ChangeNotifier {
         _removedKey,
         _onboardedKey,
         _albumPlansKey,
+        _photoSortKey,
         _searchCacheKey,
       ]) {
         await prefs.remove(k);
@@ -696,6 +700,18 @@ class SnapbackState extends ChangeNotifier {
   void setRecordsView(String v) {
     recordsView = v;
     notifyListeners();
+  }
+
+  /// 사진 탭 정렬: 'time' 촬영 시간순(월별) / 'added' 앱에 추가한 순(최근 추가가 먼저)
+  String photoSort = 'time';
+
+  void setPhotoSort(String v) {
+    if (v != 'time' && v != 'added') return;
+    photoSort = v;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((p) => p.setString(_photoSortKey, v))
+        .ignore();
   }
 
   PhotoRecord? recordForPhoto(int photoId) =>
@@ -1057,7 +1073,8 @@ class SnapbackState extends ChangeNotifier {
 
   /// '맞아요'(또는 후보 선택)로 찾은 사진에 그 기억을 키워드로 붙인다.
   /// 화면은 바로 넘어가고 키워드는 뒤에서 받는다. AI 호출이 실패하면 검색 결과의
-  /// '확인 안 된 단서'(missing)와 질문 답을 대신 붙인다 (사용자가 맞다고 확인했으므로 사실).
+  /// '확인 안 된 단서'(missing)와 질문 답을 대신 붙인다.
+  /// 처음 나온 낱말은 '대기'(순위에 안 씀), 다른 검색에서 또 나오면 '확정'(순위에 씀) — [PhotoItem.withRecall].
   Future<void> _learnFromFound(int id) async {
     if (searchHistory.isEmpty) return;
     final query = searchHistory.first.trim();
