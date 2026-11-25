@@ -2239,19 +2239,11 @@ class _Screen13SearchState extends State<Screen13Search>
     );
     final pinned = top.id != valid.first.id;
     final topPhoto = byId[top.id]!;
-    // 다른 후보: 1순위 일치도가 85% 이상이면 없음(그 사진 하나만).
-    // 85% 미만이면 일치도 60~85% 사진을 일치도 순으로 (지금 크게 보고 있는 사진은 제외)
-    final sure = valid.first.score >= SnapbackState.kSureScore;
-    final rest = sure
-        ? <SearchRankedItem>[]
-        : valid
-              .where((x) => x.id != top.id)
-              .where(
-                (x) =>
-                    x.score >= SnapbackState.kMinScore &&
-                    x.score < SnapbackState.kSureScore,
-              )
-              .toList();
+    // 다른 후보: 일치도 60% 이상인 연관 사진을 모두 일치도 순으로 (지금 크게 보고 있는 사진은 제외)
+    final rest = valid
+        .where((x) => x.id != top.id)
+        .where((x) => x.score >= SnapbackState.kMinScore)
+        .toList();
     // 답변 기록 (Q: … / A: …) — 지금까지 더한 기억 단서
     final answers = s.searchHistory
         .skip(1)

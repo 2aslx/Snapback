@@ -237,8 +237,7 @@ class SnapbackState extends ChangeNotifier {
   List<SearchRankedItem> searchResults = [];
 
   /// 검색 일치도 기준 (점수는 화면에 보여 주지 않고 이 기준에만 쓴다)
-  /// 1순위가 [kSureScore] 이상이면 그 사진 하나만, 아니면 [kMinScore] 이상 후보를 아래에 함께 보여 준다.
-  static const kSureScore = 85;
+  /// 1순위 아래 '다른 후보'에 [kMinScore] 이상인 연관 사진을 모두 보여 준다.
   static const kMinScore = 60;
   SearchQuestion? activeQuestion;
   bool searchCompleted = false;
