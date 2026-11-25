@@ -2212,6 +2212,13 @@ class _Screen13SearchState extends State<Screen13Search>
     }
     if (s.searchResults.isEmpty) {
       if (s.searchBusy) return const SnapNote('AI가 기억을 더듬는 중…');
+      // 질문에 답하며 후보를 제외하다 남은 후보가 없을 때
+      if (s.searchHistory.length > 1) {
+        return const SnapEmpty(
+          icon: 'sparkle',
+          text: '남은 후보 중에 맞는 사진이 없어요.\n기억나는 장면을 다시 적어 새로 검색해 보세요.',
+        );
+      }
       return SnapEmpty(
         icon: 'sparkle',
         text: s.testSession != null

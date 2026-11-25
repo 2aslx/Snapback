@@ -223,6 +223,16 @@ class SnapbackState extends ChangeNotifier {
 
   /// 처음 검색의 상위 30개 후보 id. 질문에 답한 뒤에는 이 후보 안에서만 다시 찾는다.
   final List<int> searchPool = [];
+
+  /// 질문에 답할 때 크게 보고 있던 사진 (맞다고 하지 않았으므로 다음 검색에서 제외, 답할수록 쌓임)
+  final Set<int> searchExcluded = {};
+
+  /// 지금 검색 화면에서 크게 보여 주는 사진: 고른 후보, 없으면 일치도 1순위
+  int? get shownResultId {
+    if (pinnedResultId != null) return pinnedResultId;
+    if (searchResults.isEmpty) return null;
+    return searchResults.reduce((a, b) => b.score > a.score ? b : a).id;
+  }
   String currentQuestionText = '';
   List<SearchRankedItem> searchResults = [];
 
@@ -998,6 +1008,7 @@ class SnapbackState extends ChangeNotifier {
     _searchRunId++; // 진행 중이던 검색 결과는 무시
     searchHistory.clear();
     searchPool.clear();
+    searchExcluded.clear();
     searchResults = [];
     activeQuestion = null;
     currentQuestionText = '';
@@ -1847,11 +1858,14 @@ class SnapbackState extends ChangeNotifier {
       ..clear()
       ..add(q);
     searchPool.clear();
+    searchExcluded.clear();
     await _runSearch();
   }
 
   Future<void> answerFollowUp(String answer) async {
     if (searchBusy) return;
+    // 답하기 전에 크게 보고 있던 사진은 아니라는 뜻 → 제외하고 나머지 후보에서 찾는다
+    if (shownResultId case final id?) searchExcluded.add(id);
     searchHistory.add('Q: $currentQuestionText / A: $answer');
     if (testSession != null) testSession!.questions++;
     await _runSearch(withinPool: true);
@@ -1902,9 +1916,11 @@ class SnapbackState extends ChangeNotifier {
     final run = _searchRunId;
     final inPool = withinPool && searchPool.isNotEmpty;
     final pool = searchPool.toSet();
-    final photos = inPool
-        ? visiblePhotos.where((d) => pool.contains(d.id)).toList()
-        : visiblePhotos;
+    final photos = [
+      for (final d in visiblePhotos)
+        if ((!inPool || pool.contains(d.id)) && !searchExcluded.contains(d.id))
+          d,
+    ];
     try {
       final key = SnapbackApi.searchKey(
         photos,
