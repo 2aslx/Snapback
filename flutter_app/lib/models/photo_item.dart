@@ -33,6 +33,8 @@ class PhotoItem {
     this.searchKeywords = const [],
     this.suggestedRecordType = '',
     this.structuredData = const {},
+    this.recallKeywords = const [],
+    this.recallPhrase = '',
   });
 
   final int id;
@@ -104,6 +106,28 @@ class PhotoItem {
   /// 유형별 구조화 정보 (예: 제품 목록, 시험명·등급, 항목·수치·단위). 기기 저장 최대 약 1.5KB
   final Map<String, dynamic> structuredData;
 
+  /// '맞아요'로 찾은 기억에서 뽑은 키워드 (사용자가 확인한 사실, 최근 것이 앞, 최대 12개).
+  /// 다시 분석해도 유지되고, 검색·앨범 때 사진 정보와 함께 AI 에 보낸다.
+  final List<String> recallKeywords;
+
+  /// 마지막으로 이 사진을 찾을 때 쓴 기억 문장
+  final String recallPhrase;
+
+  /// '맞아요'로 찾은 키워드를 더한 사진 (새 키워드가 앞, 중복 제거, 최대 12개)
+  PhotoItem withRecall(List<String> keywords, String phrase) {
+    final merged = <String>[];
+    for (final k in [...keywords, ...recallKeywords]) {
+      final t = k.trim();
+      if (t.isEmpty || merged.contains(t)) continue;
+      merged.add(t);
+    }
+    return PhotoItem.fromJson({
+      ...toJson(),
+      'rk': merged.take(12).toList(),
+      'rq': _cut(phrase.trim(), 120),
+    });
+  }
+
   /// 글자가 많은 정보성 이미지 (사진 정보 카드를 정보 중심으로 표시)
   bool get isInfoImage => kTextDenseTypes.contains(imageType);
 
@@ -142,6 +166,9 @@ class PhotoItem {
         if (includeThumb && inferredPurpose.isNotEmpty) 'purpose': inferredPurpose,
         if (includeThumb && suggestedRecordType.isNotEmpty) 'rec': suggestedRecordType,
         if (includeThumb && structuredData.isNotEmpty) 'data': structuredData,
+        // '맞아요'로 확인한 기억 — 기기에도 저장하고 검색·앨범 AI 에도 보낸다
+        if (recallKeywords.isNotEmpty) 'rk': recallKeywords,
+        if (recallPhrase.isNotEmpty) 'rq': recallPhrase,
       };
 
   /// AI 분석 결과(서버 /api/analyze 응답)로 설명만 바꾼 사진. id·날짜·위치·원본 연결은 그대로.
@@ -183,6 +210,8 @@ class PhotoItem {
       searchKeywords: _strList(ai['search_keywords']),
       suggestedRecordType: s('suggested_record_type'),
       structuredData: structured,
+      recallKeywords: recallKeywords,
+      recallPhrase: recallPhrase,
     );
   }
 
@@ -231,6 +260,8 @@ class PhotoItem {
       searchKeywords: _strList(j['kw']),
       suggestedRecordType: (j['rec'] ?? '').toString(),
       structuredData: j['data'] is Map ? Map<String, dynamic>.from(j['data'] as Map) : const {},
+      recallKeywords: _strList(j['rk']),
+      recallPhrase: (j['rq'] ?? '').toString(),
     );
   }
 }
@@ -306,6 +337,13 @@ class SearchRankedItem {
   final List<String> matched;
   final List<String> missing;
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'score': score,
+        'matched': matched,
+        'missing': missing,
+      };
+
   factory SearchRankedItem.fromJson(Map<String, dynamic> j) => SearchRankedItem(
         id: (j['id'] as num).toInt(),
         score: (j['score'] as num?)?.toInt() ?? 0,
@@ -321,6 +359,8 @@ class SearchQuestion {
 
   final String text;
   final List<String> options;
+
+  Map<String, dynamic> toJson() => {'text': text, 'options': options};
 
   factory SearchQuestion.fromJson(Map<String, dynamic> j) => SearchQuestion(
         text: (j['text'] ?? '').toString(),

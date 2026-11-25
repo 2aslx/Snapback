@@ -1464,7 +1464,11 @@ class AlbumCard extends StatelessWidget {
     required this.count,
     this.onTap,
     this.badge,
+    this.locked = false,
   });
+
+  /// 잠긴 앨범: 대표사진·장수를 숨기고 자물쇠만 보여 준다
+  final bool locked;
 
   final PhotoItem cover;
   final String title;
@@ -1519,7 +1523,21 @@ class AlbumCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: PhotoTile(item: cover, radius: 11, showDate: false),
+                    child: locked
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(11),
+                            child: ColoredBox(
+                              color: c.card,
+                              child: Center(
+                                child: SnapIcon(
+                                  'lock',
+                                  size: 30,
+                                  color: c.mute,
+                                ),
+                              ),
+                            ),
+                          )
+                        : PhotoTile(item: cover, radius: 11, showDate: false),
                   ),
                 ),
               ],
@@ -1539,7 +1557,7 @@ class AlbumCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            badge == null ? '사진 $count장' : '사진 $count장 · $badge',
+            [locked ? '잠긴 앨범' : '사진 $count장', ?badge].join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: 13, color: c.mute),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -118,6 +119,10 @@ class SnapbackState extends ChangeNotifier {
   static const _queueKey = 'snapback_queue';
   static const _removedKey = 'snapback_removed';
   static const _albumPlansKey = 'snapback_album_plans';
+  static const _searchCacheKey = 'snapback_search_cache';
+
+  /// 같은 검색(같은 대화 기록 + 같은 사진 정보)은 저장해 둔 결과를 그대로 보여 준다 (최근 30개).
+  final Map<String, Map<String, dynamic>> _searchCache = {};
 
   /// 앨범 요청 문장 → 서버가 해석한 조건. 같은 요청은 같은 조건으로 다시 찾아 결과가 매번 같게 한다.
   final Map<String, Map<String, dynamic>> _albumPlans = {};
@@ -214,6 +219,9 @@ class SnapbackState extends ChangeNotifier {
 
   // Search (Screen 13)
   final List<String> searchHistory = [];
+
+  /// 처음 검색의 상위 30개 후보 id. 질문에 답한 뒤에는 이 후보 안에서만 다시 찾는다.
+  final List<int> searchPool = [];
   String currentQuestionText = '';
   List<SearchRankedItem> searchResults = [];
   SearchQuestion? activeQuestion;
@@ -292,6 +300,14 @@ class SnapbackState extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(FoundMemory.fromJson)
             .toList();
+      } catch (_) {}
+    }
+    final rawSearch = prefs.getString(_searchCacheKey);
+    if (rawSearch != null && rawSearch.isNotEmpty) {
+      try {
+        (jsonDecode(rawSearch) as Map).forEach((k, v) {
+          if (v is Map<String, dynamic>) _searchCache['$k'] = v;
+        });
       } catch (_) {}
     }
     final rawPlans = prefs.getString(_albumPlansKey);
@@ -435,12 +451,14 @@ class SnapbackState extends ChangeNotifier {
     db = [];
     _nextId = 12;
     albums = [];
+    unlockedAlbumId = null;
     customCategories = [];
     records = [];
     found = [];
     placeNames.clear();
     _placeAsked.clear();
     _albumPlans.clear();
+    _searchCache.clear();
     removedKeys.clear();
     pickQueue.clear();
     pickedAssetIds.clear();
@@ -478,6 +496,7 @@ class SnapbackState extends ChangeNotifier {
         _removedKey,
         _onboardedKey,
         _albumPlansKey,
+        _searchCacheKey,
       ]) {
         await prefs.remove(k);
       }
@@ -957,6 +976,7 @@ class SnapbackState extends ChangeNotifier {
     pinnedResultId = null;
     _searchRunId++; // 진행 중이던 검색 결과는 무시
     searchHistory.clear();
+    searchPool.clear();
     searchResults = [];
     activeQuestion = null;
     currentQuestionText = '';
@@ -1035,7 +1055,55 @@ class SnapbackState extends ChangeNotifier {
   /// 최근에 찾은 순서. 검색 결과에서 사진을 열면(맞아요 · 후보 선택) 기록된다.
   List<FoundMemory> found = [];
 
+  /// '맞아요'(또는 후보 선택)로 찾은 사진에 그 기억을 키워드로 붙인다.
+  /// 화면은 바로 넘어가고 키워드는 뒤에서 받는다. AI 호출이 실패하면 검색 결과의
+  /// '확인 안 된 단서'(missing)와 질문 답을 대신 붙인다 (사용자가 맞다고 확인했으므로 사실).
+  Future<void> _learnFromFound(int id) async {
+    if (searchHistory.isEmpty) return;
+    final query = searchHistory.first.trim();
+    final qaPattern = RegExp(r'^Q:\s*(.+?)\s*/\s*A:\s*(.+)$');
+    final qa = <(String, String)>[
+      for (final h in searchHistory.skip(1))
+        if (qaPattern.firstMatch(h) case final m?)
+          (m.group(1)!.trim(), m.group(2)!.trim()),
+    ];
+    const vague = {'네', '예', '아니요', '아니오', '모르겠어요', '잘 모르겠어요', '건너뛰기', '상관없어요'};
+    final answers = [for (final (q, a) in qa) '$q → $a'];
+    final fallback = [
+      ...?searchResults.where((r) => r.id == id).firstOrNull?.missing,
+      for (final (_, a) in qa)
+        if (!vague.contains(a)) a,
+    ];
+    final photo = db.where((d) => d.id == id).firstOrNull;
+    if (query.isEmpty || photo == null) return;
+    List<String> keywords;
+    try {
+      keywords = await api.recallKeywords(photo, query, answers: answers);
+    } catch (_) {
+      keywords = fallback;
+    }
+    // 사용자가 실제로 말한 낱말만, 사진 정보에 이미 있는 낱말은 빼고 (대체 키워드에도 같은 기준)
+    final said = '$query ${answers.join(' ')}'.toLowerCase();
+    final known = jsonEncode(photo.toJson(includeThumb: false)).toLowerCase();
+    keywords = [
+      for (final k in keywords.map((e) => e.trim()))
+        if (k.isNotEmpty &&
+            k.length <= 15 &&
+            !k.contains('단서') &&
+            !k.contains('낱말') &&
+            said.contains(k.toLowerCase()) &&
+            !known.contains(k.toLowerCase()))
+          k,
+    ];
+    final i = db.indexWhere((d) => d.id == id); // 그사이 지워졌을 수 있음
+    if (i < 0) return;
+    db[i] = db[i].withRecall(keywords, query);
+    _saveDbSoon();
+    notifyListeners();
+  }
+
   void _rememberFound(int id) {
+    _learnFromFound(id).ignore();
     final q = searchHistory.isNotEmpty ? searchHistory.first : '';
     found
       ..removeWhere((f) => f.id == id)
@@ -1756,6 +1824,7 @@ class SnapbackState extends ChangeNotifier {
     searchHistory
       ..clear()
       ..add(q);
+    searchPool.clear();
     await _runSearch();
   }
 
@@ -1763,7 +1832,7 @@ class SnapbackState extends ChangeNotifier {
     if (searchBusy) return;
     searchHistory.add('Q: $currentQuestionText / A: $answer');
     if (testSession != null) testSession!.questions++;
-    await _runSearch();
+    await _runSearch(withinPool: true);
   }
 
   /// '질문 한 번 더하기' — 검색을 처음부터 하지 않고 지금 맥락(searchHistory)에 질문 하나를 더한다.
@@ -1774,10 +1843,26 @@ class SnapbackState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await _runSearch(wantQuestion: true);
+    // 이미 질문에 답했다면 '질문 더하기'도 처음 후보 30개 안에서
+    await _runSearch(wantQuestion: true, withinPool: searchHistory.length > 1);
   }
 
-  Future<void> _runSearch({bool wantQuestion = false}) async {
+  void _rememberSearch(String key, SearchResponse res) {
+    _searchCache.remove(key); // 최근 검색을 뒤로 (오래된 것부터 정리)
+    _searchCache[key] = res.toJson();
+    while (_searchCache.length > 30) {
+      _searchCache.remove(_searchCache.keys.first);
+    }
+    SharedPreferences.getInstance()
+        .then((p) => p.setString(_searchCacheKey, jsonEncode(_searchCache)))
+        .ignore();
+  }
+
+  /// [withinPool] true 면 처음 검색의 상위 30개 후보([searchPool]) 안에서만 다시 순위를 매긴다.
+  Future<void> _runSearch({
+    bool wantQuestion = false,
+    bool withinPool = false,
+  }) async {
     if (!serverConnected) {
       searchError = ApiException('network').userMessage;
       searchResults = [];
@@ -1793,14 +1878,35 @@ class SnapbackState extends ChangeNotifier {
     notifyListeners();
 
     final run = _searchRunId;
+    final inPool = withinPool && searchPool.isNotEmpty;
+    final pool = searchPool.toSet();
+    final photos = inPool
+        ? visiblePhotos.where((d) => pool.contains(d.id)).toList()
+        : visiblePhotos;
     try {
-      final res = await api.searchMemory(
-        visiblePhotos,
+      final key = SnapbackApi.searchKey(
+        photos,
         searchHistory,
         wantQuestion: wantQuestion,
         addr: addressById,
       );
+      final cached = _searchCache[key];
+      final res = cached != null
+          ? SearchResponse.fromJson(cached)
+          : await api.searchMemory(
+              photos,
+              searchHistory,
+              wantQuestion: wantQuestion,
+              addr: addressById,
+            );
       if (run != _searchRunId) return; // 그사이 새 검색을 시작함
+      if (cached == null) _rememberSearch(key, res);
+      // 처음 검색(후보 안에서 다시 찾는 게 아닐 때)의 상위 30개를 후보로 기억
+      if (!inPool) {
+        searchPool
+          ..clear()
+          ..addAll(res.pool);
+      }
       searchResults = res.ranked.take(5).toList();
       pinnedResultId = null; // 순위가 새로 나오면 다시 1순위부터
       if (testSession != null && testSession!.firstRank == null) {
@@ -2136,7 +2242,71 @@ class SnapbackState extends ChangeNotifier {
 
   void openAlbum(int id) {
     activeAlbumId = id;
+    unlockedAlbumId = null; // 앨범 목록에서 들어올 때마다 다시 잠김
     go(16);
+  }
+
+  // ── 앨범 잠금 (비밀번호 4자리) ─────────────────────────────
+  /// 지금 열어 둔 잠긴 앨범 (앨범 안에서 사진을 봤다 돌아와도 열린 채, 목록에서 다시 들어오면 잠김)
+  int? unlockedAlbumId;
+  int _unlockFails = 0;
+  DateTime? _unlockBlockedUntil;
+
+  static String _pinHash(String salt, String pin) =>
+      sha256.convert(utf8.encode('$salt:$pin')).toString();
+
+  bool isAlbumHidden(PhotoAlbum a) => a.locked && unlockedAlbumId != a.id;
+
+  void lockAlbum(int id, String pin) {
+    final a = albumById(id);
+    if (a == null || !RegExp(r'^\d{4}$').hasMatch(pin)) return;
+    final rnd = math.Random.secure();
+    final salt = List.generate(
+      16,
+      (_) => rnd.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    a
+      ..lockSalt = salt
+      ..lockHash = _pinHash(salt, pin);
+    unlockedAlbumId = id; // 방금 잠근 사람은 계속 보고 있음
+    notifyListeners();
+    _saveAlbums();
+  }
+
+  /// 비밀번호 확인. 맞으면 null, 틀리면 안내 문구. 5번 틀리면 30초 동안 막는다.
+  String? unlockAlbum(int id, String pin) {
+    final a = albumById(id);
+    if (a == null || !a.locked) return null;
+    final until = _unlockBlockedUntil;
+    if (until != null && DateTime.now().isBefore(until)) {
+      final sec = until.difference(DateTime.now()).inSeconds + 1;
+      return '$sec초 뒤에 다시 시도하세요';
+    }
+    if (_pinHash(a.lockSalt!, pin) != a.lockHash) {
+      _unlockFails++;
+      if (_unlockFails >= 5) {
+        _unlockFails = 0;
+        _unlockBlockedUntil = DateTime.now().add(const Duration(seconds: 30));
+        return '5번 틀렸어요. 30초 뒤에 다시 시도하세요';
+      }
+      return '비밀번호가 맞지 않아요 ($_unlockFails/5)';
+    }
+    _unlockFails = 0;
+    _unlockBlockedUntil = null;
+    unlockedAlbumId = id;
+    notifyListeners();
+    return null;
+  }
+
+  /// 잠금 풀기 (앨범을 연 상태에서만)
+  void removeAlbumLock(int id) {
+    final a = albumById(id);
+    if (a == null || isAlbumHidden(a)) return;
+    a
+      ..lockSalt = null
+      ..lockHash = null;
+    notifyListeners();
+    _saveAlbums();
   }
 
   void deleteAlbum(int id) {

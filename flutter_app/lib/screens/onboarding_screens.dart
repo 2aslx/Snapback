@@ -54,9 +54,32 @@ class Screen0Welcome extends StatelessWidget {
             state.go(1);
           },
         ),
+        const FullAccessNote(),
       ],
     );
   }
+}
+
+/// 시작 안내·분석 순서 화면의 버튼 아래 굵은 안내: 사진 보관함 전체 접근이 필요하다는 것
+class FullAccessNote extends StatelessWidget {
+  const FullAccessNote({super.key});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: SizedBox(
+      width: double.infinity,
+      child: Text(
+        keepWords('전체 접근을 허용해야 모든 사진을 분석할 수 있어요.'),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: context.sc.ink,
+        ),
+      ),
+    ),
+  );
 }
 
 /// ② 사진 범위 선택
@@ -286,6 +309,7 @@ class Screen3Order extends StatelessWidget {
             s.startAnalysis();
           },
         ),
+        const FullAccessNote(),
         if (s.libraryDenied) const SnapWarn('사진 보관함 접근이 허용되지 않아 분석할 수 없어요.'),
         if (s.useLibrary) const SnapNote('한 번에 최대 300장까지 분석해요'),
       ],
@@ -571,7 +595,9 @@ class _CancelAnalysisButtonState extends State<_CancelAnalysisButton> {
               decoration: BoxDecoration(
                 color: _confirm ? const Color(0xFFD93A2B) : null,
                 borderRadius: BorderRadius.circular(14),
-                border: _confirm ? null : Border.all(color: const Color(0xFFD93A2B)),
+                border: _confirm
+                    ? null
+                    : Border.all(color: const Color(0xFFD93A2B)),
               ),
               child: Text(
                 _confirm ? '한 번 더 누르면 분석이 취소돼요' : '분석 취소',

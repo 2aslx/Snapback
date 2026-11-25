@@ -43,9 +43,40 @@ class HealthResult {
 }
 
 class SearchResponse {
-  SearchResponse({required this.ranked, this.question});
+  SearchResponse({required this.ranked, this.question, this.pool = const []});
   final List<SearchRankedItem> ranked;
   final SearchQuestion? question;
+
+  /// 상위 30개 후보 id — 질문에 답한 뒤에는 이 안에서만 다시 찾는다
+  final List<int> pool;
+
+  Map<String, dynamic> toJson() => {
+    'ranked': [for (final r in ranked) r.toJson()],
+    'question': question?.toJson(),
+    'pool': pool,
+  };
+
+  factory SearchResponse.fromJson(Map<String, dynamic> data) {
+    final ranked = (data['ranked'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(SearchRankedItem.fromJson)
+        .toList();
+    final qRaw = data['question'];
+    final question =
+        qRaw is Map<String, dynamic> &&
+            (qRaw['options'] as List?)?.isNotEmpty == true
+        ? SearchQuestion.fromJson(qRaw)
+        : null;
+    final pool = (data['pool'] as List? ?? const [])
+        .whereType<num>()
+        .map((e) => e.toInt())
+        .toList();
+    return SearchResponse(
+      ranked: ranked,
+      question: question,
+      pool: pool.isNotEmpty ? pool : [for (final r in ranked) r.id],
+    );
+  }
 }
 
 /// 기본 API 서버 주소.
@@ -144,12 +175,20 @@ class SnapbackApi {
     }
   }
 
+  /// 서버가 한 번에 받는 최대 사진 수 (api/_core.js MAX_DB). 넘으면 최근 사진부터 이만큼만 보낸다.
+  static const maxPhotos = 2000;
+
   /// AI 로 보낼 사진 목록: 썸네일 없이, 촬영 위치는 좌표 대신 시·구·동 주소(addr)로
   static List<Map<String, dynamic>> aiDb(
     List<PhotoItem> db,
     Map<int, String> addr,
   ) => [
-    for (final d in db)
+    for (final d
+        in db.length <= maxPhotos
+            ? db
+            : ([...db]..sort((a, b) => b.date.compareTo(a.date))).take(
+                maxPhotos,
+              ))
       {...d.toJson(includeThumb: false)..remove('gps'), 'addr': ?addr[d.id]},
   ];
 
@@ -165,17 +204,24 @@ class SnapbackApi {
       'hist': hist,
       if (wantQuestion) 'wantQuestion': true,
     });
-    final ranked = (data['ranked'] as List? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(SearchRankedItem.fromJson)
-        .toList();
-    final qRaw = data['question'];
-    final question =
-        qRaw is Map<String, dynamic> &&
-            (qRaw['options'] as List?)?.isNotEmpty == true
-        ? SearchQuestion.fromJson(qRaw)
-        : null;
-    return SearchResponse(ranked: ranked, question: question);
+    return SearchResponse.fromJson(data);
+  }
+
+  /// 검색 결과 저장용 키: 대화 기록 + '질문 더하기' 여부 + AI 에 보내는 사진 정보 전체의 지문.
+  /// 사진을 추가·삭제·다시 분석하거나 주소가 새로 생기면 키가 바뀌어 새로 검색한다.
+  static String searchKey(
+    List<PhotoItem> db,
+    List<String> hist, {
+    bool wantQuestion = false,
+    Map<int, String> addr = const {},
+  }) {
+    final text = jsonEncode([hist, wantQuestion, aiDb(db, addr)]);
+    // FNV-1a 32bit (실행·플랫폼이 달라도 같은 값)
+    var h = 0x811c9dc5;
+    for (final c in utf8.encode(text)) {
+      h = ((h ^ c) * 0x01000193) & 0xffffffff;
+    }
+    return '${h.toRadixString(36)}-${text.length}';
   }
 
   /// AI 대화형 앨범: 자연어 요청 → (이름, 사진 id 목록, 추천 카테고리 id 또는 null, 못 찾은 이유, 해석한 조건)
@@ -227,6 +273,26 @@ class SnapbackApi {
     'image': ?image,
     if (location != null && location.isNotEmpty) 'location': location,
   });
+
+  /// '맞아요'로 찾은 사진에 붙일 키워드 — 기억 문장·질문 답에서 사진 정보가 놓친 새 정보만
+  Future<List<String>> recallKeywords(
+    PhotoItem photo,
+    String query, {
+    List<String> answers = const [],
+  }) async {
+    final data = await _post('/api/recall', {
+      'photo': {...photo.toJson(includeThumb: false)}
+        ..remove('gps')
+        ..remove('rk')
+        ..remove('rq'),
+      'query': query,
+      if (answers.isNotEmpty) 'answers': answers,
+    });
+    return ((data['keywords'] as List?) ?? const [])
+        .map((e) => '$e'.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
 
   /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)
   Future<List<String>> suggestAlbums(
