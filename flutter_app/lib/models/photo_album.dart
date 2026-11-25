@@ -52,6 +52,8 @@ class PhotoAlbum {
     required this.photoIds,
     required this.createdAtMs,
     this.category,
+    this.lockSalt,
+    this.lockHash,
   });
 
   final int id;
@@ -63,6 +65,11 @@ class PhotoAlbum {
   /// [AlbumCategory.id]. 예전에 만든 앨범은 null → '전체'에서만 보인다.
   String? category;
 
+  /// 앨범 잠금: 비밀번호 4자리는 저장하지 않고 salt + SHA-256 해시만 기기에 저장한다.
+  String? lockSalt;
+  String? lockHash;
+  bool get locked => lockHash != null && lockSalt != null;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -70,6 +77,8 @@ class PhotoAlbum {
         'photoIds': photoIds,
         'createdAtMs': createdAtMs,
         if (category != null) 'category': category,
+        if (locked) 'lockSalt': lockSalt,
+        if (locked) 'lockHash': lockHash,
       };
 
   factory PhotoAlbum.fromJson(Map<String, dynamic> j) => PhotoAlbum(
@@ -82,6 +91,8 @@ class PhotoAlbum {
             .toList(),
         createdAtMs: (j['createdAtMs'] as num?)?.toInt() ?? 0,
         category: j['category'] as String?,
+        lockSalt: j['lockSalt'] as String?,
+        lockHash: j['lockHash'] as String?,
       );
 }
 

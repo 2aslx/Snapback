@@ -33,6 +33,9 @@ class PhotoItem {
     this.searchKeywords = const [],
     this.suggestedRecordType = '',
     this.structuredData = const {},
+    this.recallKeywords = const [],
+    this.recallPending = const [],
+    this.recallPhrase = '',
   });
 
   final int id;
@@ -104,6 +107,45 @@ class PhotoItem {
   /// 유형별 구조화 정보 (예: 제품 목록, 시험명·등급, 항목·수치·단위). 기기 저장 최대 약 1.5KB
   final Map<String, dynamic> structuredData;
 
+  /// '맞아요'로 찾은 기억에서 뽑은 **확정** 키워드 — 서로 다른 두 검색에서 나온 낱말 (최근 것이 앞, 최대 12개).
+  /// 다시 분석해도 유지되고, 검색·앨범 때 사진 정보와 함께 AI 에 보내 순위에 쓴다.
+  final List<String> recallKeywords;
+
+  /// **대기** 키워드 — 한 번만 나온 낱말 (잘못 기억했을 수 있음). 기기에만 저장하고 AI·순위에는 쓰지 않는다.
+  /// 다른 검색에서 같은 사진을 '맞아요' 하며 같은 낱말이 또 나오면 확정으로 옮긴다. 최대 20개.
+  final List<String> recallPending;
+
+  /// 마지막으로 이 사진을 찾을 때 쓴 기억 문장 (같은 문장으로 다시 찾으면 바로 1순위)
+  final String recallPhrase;
+
+  /// '맞아요'로 찾은 키워드 반영: 대기에 있던 낱말이 다시 나오면 확정, 처음 나온 낱말은 대기.
+  /// 같은 문장으로 다시 찾은 경우는 '다른 검색'이 아니므로 확정하지 않는다.
+  PhotoItem withRecall(List<String> keywords, String phrase) {
+    String norm(String v) => v.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    final sameSearch =
+        recallPhrase.isNotEmpty && norm(recallPhrase) == norm(phrase);
+    final confirmed = [...recallKeywords];
+    final pending = [...recallPending];
+    for (final k in keywords.map((e) => e.trim()).toSet()) {
+      if (k.isEmpty) continue;
+      if (confirmed.remove(k)) {
+        confirmed.insert(0, k); // 이미 확정 → 최근으로
+      } else if (!sameSearch && pending.remove(k)) {
+        confirmed.insert(0, k); // 다른 검색에서 또 나옴 → 확정
+      } else {
+        pending
+          ..remove(k)
+          ..insert(0, k); // 처음 나옴 → 대기
+      }
+    }
+    return PhotoItem.fromJson({
+      ...toJson(),
+      'rk': confirmed.take(12).toList(),
+      'rp': pending.take(20).toList(),
+      'rq': _cut(phrase.trim(), 120),
+    });
+  }
+
   /// 글자가 많은 정보성 이미지 (사진 정보 카드를 정보 중심으로 표시)
   bool get isInfoImage => kTextDenseTypes.contains(imageType);
 
@@ -142,6 +184,10 @@ class PhotoItem {
         if (includeThumb && inferredPurpose.isNotEmpty) 'purpose': inferredPurpose,
         if (includeThumb && suggestedRecordType.isNotEmpty) 'rec': suggestedRecordType,
         if (includeThumb && structuredData.isNotEmpty) 'data': structuredData,
+        // '맞아요'로 확인한 기억 — 기기에도 저장하고 검색·앨범 AI 에도 보낸다
+        if (recallKeywords.isNotEmpty) 'rk': recallKeywords,
+        if (includeThumb && recallPending.isNotEmpty) 'rp': recallPending,
+        if (recallPhrase.isNotEmpty) 'rq': recallPhrase,
       };
 
   /// AI 분석 결과(서버 /api/analyze 응답)로 설명만 바꾼 사진. id·날짜·위치·원본 연결은 그대로.
@@ -183,6 +229,9 @@ class PhotoItem {
       searchKeywords: _strList(ai['search_keywords']),
       suggestedRecordType: s('suggested_record_type'),
       structuredData: structured,
+      recallKeywords: recallKeywords,
+      recallPending: recallPending,
+      recallPhrase: recallPhrase,
     );
   }
 
@@ -231,6 +280,9 @@ class PhotoItem {
       searchKeywords: _strList(j['kw']),
       suggestedRecordType: (j['rec'] ?? '').toString(),
       structuredData: j['data'] is Map ? Map<String, dynamic>.from(j['data'] as Map) : const {},
+      recallKeywords: _strList(j['rk']),
+      recallPending: _strList(j['rp']),
+      recallPhrase: (j['rq'] ?? '').toString(),
     );
   }
 }
@@ -306,6 +358,13 @@ class SearchRankedItem {
   final List<String> matched;
   final List<String> missing;
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'score': score,
+        'matched': matched,
+        'missing': missing,
+      };
+
   factory SearchRankedItem.fromJson(Map<String, dynamic> j) => SearchRankedItem(
         id: (j['id'] as num).toInt(),
         score: (j['score'] as num?)?.toInt() ?? 0,
@@ -321,6 +380,8 @@ class SearchQuestion {
 
   final String text;
   final List<String> options;
+
+  Map<String, dynamic> toJson() => {'text': text, 'options': options};
 
   factory SearchQuestion.fromJson(Map<String, dynamic> j) => SearchQuestion(
         text: (j['text'] ?? '').toString(),

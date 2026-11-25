@@ -2,10 +2,12 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:material_ui/material_ui.dart';
 
+import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/pin_pad.dart';
 import '../widgets/snap_runner.dart';
 import '../widgets/photo_image.dart';
 import '../widgets/map_popup.dart';
@@ -26,13 +28,91 @@ class Screen5Home extends StatefulWidget {
 class _Screen5HomeState extends State<Screen5Home>
     with SingleTickerProviderStateMixin {
   final _searchBoxKey = GlobalKey();
-  bool _showAll = false; // '모두 보기' — 월별 전체 사진
+  bool _showAll = true; // 기본은 모든 사진(월별). '접기'를 누르면 최근 사진 9장만
   bool _editing = false; // '편집' — 사진을 골라 앱에서 지우기
   final Set<int> _sel = {};
 
   void _tapPhoto(SnapbackState s, PhotoItem d) {
     if (!_editing) return s.openMemory(d.id);
     setState(() => _sel.contains(d.id) ? _sel.remove(d.id) : _sel.add(d.id));
+  }
+
+  /// 사진 정렬 기준 고르기 (팝업): 시간순 / 추가순
+  Future<void> _pickSort(SnapbackState s) async {
+    final c = context.sc;
+    const options = [
+      ('time', '시간순', '찍은 날짜가 최근인 사진부터, 월별로'),
+      ('added', '추가순', '앱에 최근 추가한 사진부터'),
+    ];
+    final picked = await showDialog<String>(
+      context: context,
+      barrierColor: const Color(0x66000000),
+      builder: (ctx) => Dialog(
+        backgroundColor: c.bg,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Text(
+                  '정렬 기준',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: c.ink,
+                  ),
+                ),
+              ),
+              for (final (id, label, hint) in options)
+                Pressable(
+                  onTap: () => Navigator.of(ctx).pop(id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: s.photoSort == id
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
+                                  color: s.photoSort == id ? c.pk : c.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                hint,
+                                style: TextStyle(fontSize: 13, color: c.mute),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (s.photoSort == id)
+                          SnapIcon('check', size: 18, color: c.pk),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) s.setPhotoSort(picked);
   }
 
   Future<void> _deleteSelected(SnapbackState s) async {
@@ -87,10 +167,17 @@ class _Screen5HomeState extends State<Screen5Home>
   @override
   Widget build(BuildContext context) {
     final s = widget.state;
-    // 월별 묶음 (최신 월부터)
+    // 정렬: 시간순(촬영 날짜, 월별 묶음) / 추가순(앱에 추가한 순서 — id 가 클수록 나중에 추가)
+    final byAdded = s.photoSort == 'added';
     final groups = <String, List<PhotoItem>>{};
     final photos = s.visiblePhotos.toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort(
+        (a, b) => byAdded
+            ? b.id.compareTo(a.id)
+            : b.date.compareTo(a.date) == 0
+            ? b.id.compareTo(a.id)
+            : b.date.compareTo(a.date),
+      );
     for (final d in photos) {
       groups.putIfAbsent(d.date.substring(0, 7), () => []).add(d);
     }
@@ -198,6 +285,28 @@ class _Screen5HomeState extends State<Screen5Home>
                           ),
                         ),
                       ),
+                      // 정렬 기준: 시간순 / 추가순
+                      Pressable(
+                        onTap: () => _pickSort(s),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                byAdded ? '추가순' : '시간순',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.sc.pk,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              SnapIcon('down', size: 14, color: context.sc.pk),
+                            ],
+                          ),
+                        ),
+                      ),
                       // 편집: 사진을 골라 앱에서 지우기 (원본은 그대로)
                       Pressable(
                         onTap: () => setState(() {
@@ -259,7 +368,10 @@ class _Screen5HomeState extends State<Screen5Home>
                             }
                           }),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: context.sc.soft,
                               borderRadius: BorderRadius.circular(99),
@@ -280,6 +392,12 @@ class _Screen5HomeState extends State<Screen5Home>
                 if (!_showAll)
                   PhotoGrid(
                     items: photos.take(9).toList(),
+                    selected: _editing ? _sel : null,
+                    onTap: (d) => _tapPhoto(s, d),
+                  )
+                else if (byAdded)
+                  PhotoGrid(
+                    items: photos,
                     selected: _editing ? _sel : null,
                     onTap: (d) => _tapPhoto(s, d),
                   )
@@ -770,7 +888,10 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         (
           'image',
           '이미지 유형',
-          join([imageTypeLabel(item.imageType), ...item.semanticCategory.take(2)]),
+          join([
+            imageTypeLabel(item.imageType),
+            ...item.semanticCategory.take(2),
+          ]),
         ),
         ('store', '출처', item.sourcePlatform),
         ('target', '핵심 주제', item.mainTopic),
@@ -790,14 +911,16 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
               : (item.gps != null ? '위치 정보 있음' : ''),
         ),
         // 사람: 새 분석은 '주인공: … / 배경: …' 형식 → 주인공과 배경 인물을 따로 표시
-        if (_peopleParts(item.people) case (final main?, final back))
-          ...[
-            ('person', '주인공', join([main])),
-            ('person', '배경 인물', join([?back])),
-            ('image', '주요 객체·장면', join([...item.food, item.background])),
-          ]
-        else
-          ('image', '주요 객체·장면', join([...item.food, item.people, item.background])),
+        if (_peopleParts(item.people) case (final main?, final back)) ...[
+          ('person', '주인공', join([main])),
+          ('person', '배경 인물', join([?back])),
+          ('image', '주요 객체·장면', join([...item.food, item.background])),
+        ] else
+          (
+            'image',
+            '주요 객체·장면',
+            join([...item.food, item.people, item.background]),
+          ),
         ('palette', '분위기·특징', join([item.weather, item.caption])),
       ],
     ].where((x) => x.$3.isNotEmpty).toList();
@@ -941,7 +1064,11 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
                                 keepWords('•  $l'),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 14, height: 1.4, color: c.ink),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  height: 1.4,
+                                  color: c.ink,
+                                ),
                               ),
                             ),
                         ],
@@ -1017,7 +1144,11 @@ class _ReanalyzeLink extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SnapIcon(busy ? 'refresh' : 'sparkle', size: 15, color: c.pk),
+                      SnapIcon(
+                        busy ? 'refresh' : 'sparkle',
+                        size: 15,
+                        color: c.pk,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         busy ? '정밀 분석 중…' : '다시 분석하기',
@@ -1333,9 +1464,10 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
                 runSpacing: 6,
                 children: [
                   // 내 사진 DB 로 만든 제안 (없으면 기본 예시)
-                  for (final e in s.albumSuggestions.isNotEmpty
-                      ? s.albumSuggestions
-                      : _examples)
+                  for (final e
+                      in s.albumSuggestions.isNotEmpty
+                          ? s.albumSuggestions
+                          : _examples)
                     SnapChip(
                       label: e,
                       icon: s.albumSuggestions.isNotEmpty ? 'sparkle' : null,
@@ -1405,6 +1537,7 @@ class _Screen11AlbumsState extends State<Screen11Albums> {
                 () {
                   final photos = s.albumPhotos(a);
                   return AlbumCard(
+                    locked: a.locked,
                     cover: photos.isNotEmpty
                         ? photos.first
                         : PhotoItem(id: a.id + 4, date: '', place: ''),
@@ -1617,14 +1750,21 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
               Pressable(
                 onTap: () => s.setAllDraftPhotos(sel.isNotEmpty),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: c.soft,
                     borderRadius: BorderRadius.circular(99),
                   ),
                   child: Text(
                     sel.isEmpty ? '전체 해제' : '전체 선택',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: c.pk),
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: c.pk,
+                    ),
                   ),
                 ),
               ),
@@ -1674,7 +1814,12 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
                       ),
                       alignment: Alignment.center,
                       child: on
-                          ? const SnapIcon('check', size: 12, color: Colors.white, strokeWidth: 2.6)
+                          ? const SnapIcon(
+                              'check',
+                              size: 12,
+                              color: Colors.white,
+                              strokeWidth: 2.6,
+                            )
                           : null,
                     ),
                   ),
@@ -1792,8 +1937,7 @@ class _Screen12SettingsState extends State<Screen12Settings> {
             final ok = await showSnapConfirm(
               context,
               title: '앱을 초기화할까요?',
-              message:
-                  '분석한 사진 정보, 앨범, 기록, 찾은 사진이 모두 지워지고\n처음 화면으로 돌아가요.\n사진 앱의 원본 사진은 지워지지 않아요.',
+              message: '분석한 사진 정보, 앨범, 기록, 찾은 사진이 모두 지워지고\n처음 화면으로 돌아가요.\n사진 앱의 원본 사진은 지워지지 않아요.',
               confirmLabel: '초기화',
             );
             if (ok) await s.resetAll();
@@ -2138,7 +2282,11 @@ class _Screen13SearchState extends State<Screen13Search>
                     onTap: () => s.pinResult(null),
                     child: Text(
                       '1순위 보기',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.pk),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: c.pk,
+                      ),
                     ),
                   ),
                 ],
@@ -2149,7 +2297,11 @@ class _Screen13SearchState extends State<Screen13Search>
             key: pinned ? null : _topResultKey,
             onTap: () => s.openMemory(top.id),
             // 가로 폭에 맞추고 높이는 사진 비율대로 → 사진 전체가 크게
-            child: FullWidthPhoto(item: topPhoto, radius: 13, fallbackHeight: 260),
+            child: FullWidthPhoto(
+              item: topPhoto,
+              radius: 13,
+              fallbackHeight: 260,
+            ),
           ),
           const SizedBox(height: 10),
           Row(
@@ -2568,6 +2720,36 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
   }
 
   /// 삭제 확인 팝업
+  Future<void> _toggleLock(PhotoAlbum album) async {
+    final s = widget.state;
+    if (album.locked) {
+      final ok = await showSnapConfirm(
+        context,
+        title: '잠금을 풀까요?',
+        message: "'${album.title}' 앨범을 비밀번호 없이\n볼 수 있게 돼요.",
+        confirmLabel: '잠금 풀기',
+        destructive: false,
+      );
+      if (ok) s.removeAlbumLock(album.id);
+      return;
+    }
+    final pin = await showPinSetup(context);
+    if (pin != null) s.lockAlbum(album.id, pin);
+  }
+
+  Future<void> _confirmForgot(int albumId, String title) async {
+    final ok = await showSnapConfirm(
+      context,
+      title: '비밀번호를 잊으셨나요?',
+      message: '비밀번호는 찾을 수 없어요.\n앨범을 지우면 다시 만들 수 있고,\n사진과 분석 정보는 그대로 남아요.',
+      confirmLabel: '앨범 삭제',
+    );
+    if (ok) {
+      widget.state.deleteAlbum(albumId);
+      widget.state.go(11);
+    }
+  }
+
   Future<void> _confirmDelete(int albumId, String title) async {
     final ok = await showSnapConfirm(
       context,
@@ -2590,6 +2772,38 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
         children: [
           SnapbackTopBar(title: '앨범', onBack: () => s.go(11)),
           const SnapEmpty(icon: 'stack', text: '앨범을 찾을 수 없어요'),
+        ],
+      );
+    }
+    // 잠긴 앨범: 비밀번호 4자리를 맞게 입력해야 사진이 보인다
+    if (s.isAlbumHidden(album)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SnapbackTopBar(title: album.title, onBack: () => s.go(11)),
+          const SizedBox(height: 12),
+          PinPad(
+            title: '잠긴 앨범',
+            message: '비밀번호 4자리를 입력하면 사진을 볼 수 있어요.',
+            onComplete: (pin) async => s.unlockAlbum(album.id, pin),
+            footer: Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Pressable(
+                onTap: () => _confirmForgot(album.id, album.title),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(
+                    '비밀번호를 잊었어요',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: context.sc.mute,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       );
     }
@@ -2687,6 +2901,17 @@ class _Screen16AlbumDetailState extends State<Screen16AlbumDetail> {
           const SnapEmpty(icon: 'image', text: '이 앨범의 사진이 삭제되었거나\n숨김 처리되었어요')
         else
           PhotoGrid(items: photos, onTap: (d) => s.openMemory(d.id)),
+        SnapButton(
+          label: album.locked ? '잠금 풀기' : '앨범 잠그기',
+          icon: 'lock',
+          ghost: true,
+          onTap: () => _toggleLock(album),
+        ),
+        SnapNote(
+          album.locked
+              ? '앨범 목록에서는 사진이 가려지고, 열 때마다 비밀번호를 물어요'
+              : '잠그면 앨범 목록에서 사진이 가려지고, 비밀번호 4자리로만 열 수 있어요',
+        ),
         SnapButton(
           label: '앨범 삭제',
           ghost: true,
