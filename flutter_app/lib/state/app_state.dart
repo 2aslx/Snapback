@@ -225,6 +225,11 @@ class SnapbackState extends ChangeNotifier {
   final List<int> searchPool = [];
   String currentQuestionText = '';
   List<SearchRankedItem> searchResults = [];
+
+  /// 검색 일치도 기준 (점수는 화면에 보여 주지 않고 이 기준에만 쓴다)
+  /// 1순위가 [kSureScore] 이상이면 그 사진 하나만, 아니면 [kMinScore] 이상 후보를 아래에 함께 보여 준다.
+  static const kSureScore = 85;
+  static const kMinScore = 60;
   SearchQuestion? activeQuestion;
   bool searchCompleted = false;
   bool searchBusy = false;
@@ -1924,7 +1929,7 @@ class SnapbackState extends ChangeNotifier {
           ..clear()
           ..addAll(res.pool);
       }
-      searchResults = res.ranked.take(5).toList();
+      searchResults = res.ranked.toList();
       pinnedResultId = null; // 순위가 새로 나오면 다시 1순위부터
       if (testSession != null && testSession!.firstRank == null) {
         final idx = searchResults.indexWhere(
