@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/photo_item.dart';
+import 'hybrid_search.dart';
 
 class ApiException implements Exception {
   ApiException(this.code);
@@ -292,6 +293,23 @@ class SnapbackApi {
         .map((e) => '$e'.trim())
         .where((e) => e.isNotEmpty)
         .toList();
+  }
+
+  /// 글 여러 개(최대 50개) → 256차원 임베딩. 빈 글이나 실패한 항목은 null.
+  Future<List<Float32List?>> embedTexts(List<String> texts) async {
+    final data = await _post('/api/embed', {'texts': texts});
+    final list = (data['embeddings'] as List?) ?? const [];
+    return [for (var i = 0; i < texts.length; i++) i < list.length ? toVector(list[i]) : null];
+  }
+
+  /// 검색어 한 문장 → 256차원 임베딩 (실패하면 null — 키워드 선별로 대신한다)
+  Future<Float32List?> embedQuery(String text) async {
+    try {
+      final data = await _post('/api/embed', {'text': text});
+      return toVector(data['embedding']);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// '흩어진 순간 모으기' 제안 문장 (사진 분석 DB 기반, 최대 3개)

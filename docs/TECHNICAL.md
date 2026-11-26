@@ -45,19 +45,28 @@
 ```
 Snapback/
 ├─ api/
-│  ├─ _core.js        # 서버 로직 전체 (프롬프트, 라우트, 제한, 정리)
-│  └─ analyze.js, search.js, album.js, place.js, record.js, suggest.js, health.js
+│  ├─ _core.js        # 요청 처리만 (라우팅·요청 제한·본문 읽기·오류 응답)
+│  ├─ _lib/           # 기능별 서버 로직 ('_' 폴더는 Vercel 함수로 배포되지 않음)
+│  │  ├─ config.js · openai.js (Chat·Embeddings) · pii.js (개인정보 제거)
+│  │  ├─ analyze.js (분석·/api/embed) · photos.js (사진 정보 다듬기·300장 고르기)
+│  │  └─ search.js · album.js (앨범·제안) · place.js · record.js · recall.js
+│  └─ analyze.js, search.js, album.js, place.js, record.js, suggest.js, recall.js, embed.js, health.js
 │                     # Vercel 함수 래퍼: handleApi(req, res, '<route>') 호출만 함
+├─ test/core.test.mjs # 서버 단위 테스트 (npm test)
 ├─ server.js          # 로컬 개발 서버 (/api/* → _core.js, 나머지는 flutter_app/build/web 정적 파일)
 ├─ vercel.json        # Vercel 설정 (빌드 스크립트, 출력 폴더, 함수 최대 60초)
 ├─ scripts/vercel-build.sh  # Vercel에서 Flutter SDK를 받아 웹 빌드
 ├─ flutter_app/
 │  ├─ lib/
 │  │  ├─ main.dart            # 앱 셸: 화면 전환, 하단 탭, 진행 카드, 시작 화면
-│  │  ├─ state/app_state.dart # SnapbackState: 앱 상태·저장·분석 대기열·검색·앨범·기록
+│  │  ├─ state/app_state.dart # SnapbackState: 상태 값·시작 처리·공용 도우미
+│  │  ├─ state/parts/         # 기능별 메서드 (extension): storage · places · records · memories ·
+│  │  │                       #   search · embeddings · library · analysis · albums · album_lock
 │  │  ├─ models/              # PhotoItem, PhotoAlbum, PhotoRecord
-│  │  ├─ screens/             # onboarding / main / record 화면
-│  │  ├─ services/            # API 호출, 이미지 처리, 미리보기 저장, Live Activity
+│  │  ├─ screens/             # onboarding · record 화면, main_screens.dart + main/*.dart
+│  │  │                       #   (홈 · 사진 상세 · 기억 · 앨범 · 설정 · 검색)
+│  │  ├─ services/            # API 호출, 이미지 처리, 미리보기·임베딩 저장소, 하이브리드 선별,
+│  │  │                       #   월간 리캡 계산, Live Activity
 │  │  ├─ widgets/             # 공통 위젯, 지도 팝업, 공유, 아이콘 경로
 │  │  └─ theme/app_theme.dart
 │  ├─ ios/                    # Runner + SnapbackLiveActivity(위젯 확장)
@@ -245,11 +254,14 @@ flutter run -d ios --dart-define=SNAPBACK_API_URL=http://localhost:3000
 
 ### 검증 순서
 ```bash
+npm test                       # 서버 단위 테스트 (test/core.test.mjs, OpenAI 는 가짜 응답)
 cd flutter_app
-flutter analyze && flutter test
+flutter analyze && flutter test  # 모델(test/models_test.dart)·화면 동작(test/app_flows_test.dart) 테스트
 flutter build web --release
 flutter build ios --simulator --no-codesign
 ```
+
+- push·PR 마다 GitHub Actions(`.github/workflows/test.yml`)가 위 테스트를 자동으로 돌린다.
 
 ### 배포
 - **웹·서버**: `meisteryi/Snapback`의 `main`에 push하면 Vercel이 자동 배포한다.

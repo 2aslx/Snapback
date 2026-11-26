@@ -852,6 +852,28 @@ class SnapSearchBar extends StatelessWidget {
   }
 }
 
+/// 잠긴 앨범에 속한 사진 id 집합을 하위 위젯(PhotoTile · FullWidthPhoto)에 전달한다.
+class LockedPhotosScope extends InheritedWidget {
+  const LockedPhotosScope({
+    super.key,
+    required this.lockedIds,
+    required super.child,
+  });
+
+  final Set<int> lockedIds;
+
+  static bool isLocked(BuildContext context, int photoId) {
+    final scope = context
+        .dependOnInheritedWidgetOfExactType<LockedPhotosScope>();
+    return scope?.lockedIds.contains(photoId) ?? false;
+  }
+
+  @override
+  bool updateShouldNotify(LockedPhotosScope oldWidget) =>
+      lockedIds.length != oldWidget.lockedIds.length ||
+      !lockedIds.containsAll(oldWidget.lockedIds);
+}
+
 /// .ph — 사진 타일 (그라데이션 + 흰 아이콘, 또는 썸네일). small = 날짜 라벨.
 class PhotoTile extends StatelessWidget {
   const PhotoTile({
@@ -880,6 +902,28 @@ class PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (LockedPhotosScope.isLocked(context, item.id)) {
+      final c = context.sc;
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: width,
+          height: height,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            color: c.fill,
+          ),
+          alignment: Alignment.center,
+          child: SnapIcon(
+            'lock',
+            size: (iconSize * 0.9).clamp(20.0, 38.0),
+            color: c.mute,
+            strokeWidth: 1.7,
+          ),
+        ),
+      );
+    }
     final text =
         label ?? (item.date.length >= 2 ? item.date.substring(2) : item.date);
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2;
@@ -1794,6 +1838,7 @@ class _FullWidthPhotoState extends State<FullWidthPhoto> {
 
   void _resolve() {
     final d = widget.item;
+    if (LockedPhotosScope.isLocked(context, d.id)) return;
     if ((d.assetW ?? 0) > 0 && (d.assetH ?? 0) > 0) {
       _aspect = d.assetW! / d.assetH!;
       return;

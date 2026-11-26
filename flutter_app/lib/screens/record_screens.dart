@@ -290,14 +290,18 @@ class _RecordFormState extends State<_RecordForm> {
 
   /// 입력값을 초안에 옮긴 뒤 저장
   void _save() {
+    final nextLines = _lines.text
+        .split('\n')
+        .map((x) => x.replaceFirst(RegExp(r'^\s*[•·\-]\s*'), '').trim())
+        .where((x) => x.isNotEmpty)
+        .toList();
     d
       ..title = _title.text.trim()
       ..location = _loc.text.trim()
       ..date = _date.text.trim()
-      ..lines = _lines.text
-          .split('\n')
-          .map((x) => x.replaceFirst(RegExp(r'^\s*[•·\-]\s*'), '').trim())
-          .where((x) => x.isNotEmpty)
+      ..lines = nextLines
+      ..checkedLines = d.checkedLines
+          .where((i) => i >= 0 && i < nextLines.length)
           .toList()
       ..summary = _summary.text.trim()
       ..memo = _memo.text.trim();
@@ -955,21 +959,45 @@ class _Screen21RecordViewState extends State<Screen21RecordView> {
             ),
           ),
         if (r.type == 'document' && r.lines.isNotEmpty) ...[
-          const SnapH3('추출된 주요 텍스트', small: true),
+          SnapH3(
+            r.checkedLines.isEmpty
+                ? '추출된 주요 항목 (${r.lines.length})'
+                : '추출된 주요 항목 (${r.checkedLines.length}/${r.lines.length} 완료)',
+            small: true,
+          ),
           SnapCard(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final l in r.lines)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      keepWords('•  $l'),
-                      style: TextStyle(
-                        fontSize: 15,
-                        height: 1.45,
-                        color: c.ink,
+                for (var i = 0; i < r.lines.length; i++)
+                  Pressable(
+                    onTap: () => s.toggleRecordLine(r.id, i),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 1, right: 10),
+                            child: _CheckBox(on: r.checkedLines.contains(i)),
+                          ),
+                          Expanded(
+                            child: Text(
+                              keepWords(r.lines[i]),
+                              style: TextStyle(
+                                fontSize: 15,
+                                height: 1.45,
+                                color: r.checkedLines.contains(i)
+                                    ? c.mute
+                                    : c.ink,
+                                decoration: r.checkedLines.contains(i)
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

@@ -86,14 +86,6 @@ class _SnapbackShell extends StatelessWidget {
         return Screen4Progress(state: state);
       case 5:
         return Screen5Home(state: state);
-      case 6:
-        return Screen6FoodCategory(state: state);
-      case 7:
-        return Screen7PhotoInfo(state: state);
-      case 8:
-        return Screen8PrototypeChat(state: state);
-      case 9:
-        return Screen9PrototypeResults(state: state);
       case 10:
         return Screen10MemoryDetail(state: state);
       case 11:
@@ -102,10 +94,6 @@ class _SnapbackShell extends StatelessWidget {
         return Screen12Settings(state: state);
       case 13:
         return Screen13Search(state: state);
-      case 14:
-        return Screen14UsabilityTest(state: state);
-      case 15:
-        return Screen15Mode(state: state);
       case 16:
         return Screen16AlbumDetail(state: state);
       case 17:
@@ -149,7 +137,9 @@ class _SnapbackShell extends StatelessWidget {
     final reduce = MediaQuery.of(context).disableAnimations;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
-    return Scaffold(
+    return LockedPhotosScope(
+      lockedIds: state.lockedPhotoIds,
+      child: Scaffold(
       backgroundColor: c.bg,
       body: Center(
         child: ConstrainedBox(
@@ -254,12 +244,35 @@ class _SnapbackShell extends StatelessWidget {
                       bottom: _tabBottom(bottomInset) + 72,
                       child: _MiniProgressCard(state: state),
                     ),
+                  // 검색·앨범·기록 초안 등을 기다리는 동안 맨 아래 얇은 진행 바 (하염없이 기다리지 않게)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: state.isLoading ? 1 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: SizedBox(
+                          height: 3,
+                          child: state.isLoading
+                              ? LinearProgressIndicator(
+                                  minHeight: 3,
+                                  color: c.pri,
+                                  backgroundColor: c.soft,
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
         ),
       ),
+    ),
     );
   }
 }

@@ -50,6 +50,7 @@ class PhotoRecord {
     this.date = '',
     this.kind = '',
     this.lines = const [],
+    this.checkedLines = const [],
     this.summary = '',
     this.memo = '',
     this.favorite = false,
@@ -66,7 +67,8 @@ class PhotoRecord {
   String location;
   String date;
   String kind; // 장소 유형
-  List<String> lines; // 문서에서 추출한 주요 텍스트
+  List<String> lines; // 문서·리스트에서 추출한 항목들
+  List<int> checkedLines; // 체크 완료한 항목 인덱스 (쇼핑 리스트·체크리스트 등)
   String summary; // 문서 핵심 요약
   String memo;
   bool favorite;
@@ -88,6 +90,7 @@ class PhotoRecord {
     if (date.isNotEmpty) 'date': date,
     if (kind.isNotEmpty) 'kind': kind,
     if (lines.isNotEmpty) 'lines': lines,
+    if (checkedLines.isNotEmpty) 'chk': checkedLines,
     if (summary.isNotEmpty) 'sum': summary,
     if (memo.isNotEmpty) 'memo': memo,
     if (favorite) 'fav': true,
@@ -106,6 +109,10 @@ class PhotoRecord {
     date: (j['date'] ?? '').toString(),
     kind: (j['kind'] ?? '').toString(),
     lines: ((j['lines'] as List?) ?? const []).map((e) => '$e').toList(),
+    checkedLines: ((j['chk'] as List?) ?? const [])
+        .whereType<num>()
+        .map((e) => e.toInt())
+        .toList(),
     summary: (j['sum'] ?? '').toString(),
     memo: (j['memo'] ?? '').toString(),
     favorite: j['fav'] == true,
