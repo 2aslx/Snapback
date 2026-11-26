@@ -1,2 +1,2 @@
 { "name": "gieok-app", "version": "1.0.0", "type": "module",
-  "scripts": { "start": "node --env-file=.env server.js" } }
+  "scripts": { "start": "node --env-file=.env server.js", "test": "node --test \"test/**/*.test.mjs\"" } }

@@ -852,6 +852,28 @@ class SnapSearchBar extends StatelessWidget {
   }
 }
 
+/// 잠긴 앨범에 속한 사진 id 집합을 하위 위젯(PhotoTile · FullWidthPhoto)에 전달한다.
+class LockedPhotosScope extends InheritedWidget {
+  const LockedPhotosScope({
+    super.key,
+    required this.lockedIds,
+    required super.child,
+  });
+
+  final Set<int> lockedIds;
+
+  static bool isLocked(BuildContext context, int photoId) {
+    final scope = context
+        .dependOnInheritedWidgetOfExactType<LockedPhotosScope>();
+    return scope?.lockedIds.contains(photoId) ?? false;
+  }
+
+  @override
+  bool updateShouldNotify(LockedPhotosScope oldWidget) =>
+      lockedIds.length != oldWidget.lockedIds.length ||
+      !lockedIds.containsAll(oldWidget.lockedIds);
+}
+
 /// .ph — 사진 타일 (그라데이션 + 흰 아이콘, 또는 썸네일). small = 날짜 라벨.
 class PhotoTile extends StatelessWidget {
   const PhotoTile({
@@ -880,6 +902,28 @@ class PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (LockedPhotosScope.isLocked(context, item.id)) {
+      final c = context.sc;
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: width,
+          height: height,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            color: c.fill,
+          ),
+          alignment: Alignment.center,
+          child: SnapIcon(
+            'lock',
+            size: (iconSize * 0.9).clamp(20.0, 38.0),
+            color: c.mute,
+            strokeWidth: 1.7,
+          ),
+        ),
+      );
+    }
     final text =
         label ?? (item.date.length >= 2 ? item.date.substring(2) : item.date);
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2;
@@ -1034,6 +1078,104 @@ class PhotoGrid extends StatelessWidget {
 }
 
 /// 확인 팝업 (예: 삭제). 확인을 누르면 true.
+/// 공통 팝업: 뜰 때 살짝 커지며 나타나고(0.94→1 + 페이드), 닫힐 때 반대로 사라진다.
+/// 바깥을 누르면 닫힌다. 기기의 '동작 줄이기'가 켜져 있으면 애니메이션 없이.
+Future<T?> showSnapDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  Color barrierColor = const Color(0x66000000),
+  bool barrierDismissible = true,
+}) {
+  final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  return showGeneralDialog<T>(
+    context: context,
+    barrierColor: barrierColor,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: '닫기',
+    transitionDuration: reduce ? Duration.zero : const Duration(milliseconds: 220),
+    pageBuilder: (ctx, _, _) => SafeArea(child: Builder(builder: builder)),
+    transitionBuilder: (ctx, anim, _, child) {
+      final a = CurvedAnimation(
+        parent: anim,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: a,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.94, end: 1).animate(a),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+/// 화면 안의 패널을 부드럽게 보이기·숨기기: 높이가 스르륵 바뀌고 내용은 살짝 내려오며 나타난다.
+class SnapReveal extends StatelessWidget {
+  const SnapReveal({
+    super.key,
+    required this.visible,
+    required this.child,
+    this.duration = const Duration(milliseconds: 240),
+  });
+
+  final bool visible;
+  final Widget child;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final d = reduce ? Duration.zero : duration;
+    return AnimatedSize(
+      duration: d,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: SnapSwap(
+        duration: d,
+        child: visible
+            ? KeyedSubtree(key: const ValueKey(true), child: child)
+            : const SizedBox(key: ValueKey(false), width: double.infinity),
+      ),
+    );
+  }
+}
+
+/// 내용이 바뀔 때(예: 버튼 → 질문) 이전 것은 사라지고 새것은 살짝 내려오며 나타난다. [child] 의 key 로 바뀜을 구분한다.
+class SnapSwap extends StatelessWidget {
+  const SnapSwap({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 240),
+  });
+
+  final Widget child;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    return AnimatedSwitcher(
+      duration: reduce ? Duration.zero : duration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.topLeft,
+        children: [...previous, ?current],
+      ),
+      transitionBuilder: (c, a) => FadeTransition(
+        opacity: a,
+        child: SlideTransition(
+          position: Tween(begin: const Offset(0, -0.04), end: Offset.zero).animate(a),
+          child: c,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
 Future<bool> showSnapConfirm(
   BuildContext context, {
   required String title,
@@ -1042,7 +1184,7 @@ Future<bool> showSnapConfirm(
   bool destructive = true,
 }) async {
   final c = context.sc;
-  final ok = await showDialog<bool>(
+  final ok = await showSnapDialog<bool>(
     context: context,
     barrierColor: const Color(0x66000000),
     builder: (ctx) => Dialog(
@@ -1794,6 +1936,7 @@ class _FullWidthPhotoState extends State<FullWidthPhoto> {
 
   void _resolve() {
     final d = widget.item;
+    if (LockedPhotosScope.isLocked(context, d.id)) return;
     if ((d.assetW ?? 0) > 0 && (d.assetH ?? 0) > 0) {
       _aspect = d.assetW! / d.assetH!;
       return;

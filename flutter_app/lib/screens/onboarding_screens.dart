@@ -107,7 +107,7 @@ class Screen1Scope extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SnapbackTopBar(title: '사진 접근 범위', onBack: () => s.go(s.scopeReturn)),
-        const SnapH2('어떤 사진을\n허용할까요?'),
+        const SnapH2('어떤 사진을\n분석할까요?'),
         SnapGroup(
           children: [
             opt(

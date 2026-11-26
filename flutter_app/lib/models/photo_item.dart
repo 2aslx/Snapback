@@ -179,11 +179,15 @@ class PhotoItem {
         if (mainTopic.isNotEmpty) 'topic': mainTopic,
         if (contentSummary.isNotEmpty) 'summary': contentSummary,
         if (extractedText.isNotEmpty)
-          'text': includeThumb ? extractedText : _cut(extractedText, 150),
+          'text': includeThumb ? extractedText : _cut(extractedText, 240),
         if (searchKeywords.isNotEmpty) 'kw': searchKeywords,
         if (includeThumb && inferredPurpose.isNotEmpty) 'purpose': inferredPurpose,
         if (includeThumb && suggestedRecordType.isNotEmpty) 'rec': suggestedRecordType,
         if (includeThumb && structuredData.isNotEmpty) 'data': structuredData,
+        if (!includeThumb && structuredData.isNotEmpty)
+          if (structuredSearchText(structuredData) case final items
+              when items.isNotEmpty)
+            'items': items,
         // '맞아요'로 확인한 기억 — 기기에도 저장하고 검색·앨범 AI 에도 보낸다
         if (recallKeywords.isNotEmpty) 'rk': recallKeywords,
         if (includeThumb && recallPending.isNotEmpty) 'rp': recallPending,
@@ -339,6 +343,75 @@ List<String> structuredPreview(Map<String, dynamic> m, {int max = 5}) {
   return out;
 }
 
+/// structured_data 를 검색·앨범 AI 에 보낼 짧은 문자열로 평탄화 (제품명·항목·수치 등)
+String structuredSearchText(Map<String, dynamic> m, {int max = 260}) {
+  final parts = <String>[];
+  final seen = <String>{};
+  void collect(Object? v) {
+    if (v == null) return;
+    if (v is List) {
+      for (final x in v) {
+        collect(x);
+      }
+      return;
+    }
+    if (v is Map) {
+      for (final x in v.values) {
+        collect(x);
+      }
+      return;
+    }
+    final t = '$v'.trim();
+    if (t.isNotEmpty && seen.add(t)) parts.add(t);
+  }
+
+  collect(m);
+  return _cut(parts.join(', '), max);
+}
+
+/// structured_data 를 '기록으로 남기기'의 개별 항목 줄 목록으로 변환
+List<String> structuredRecordLines(Map<String, dynamic> m, {int max = 20}) {
+  final out = <String>[];
+  void addLine(String s) {
+    final t = s.trim();
+    if (t.isNotEmpty && !out.contains(t) && out.length < max) out.add(t);
+  }
+
+  for (final e in m.entries) {
+    if (out.length >= max) break;
+    final v = e.value;
+    if (v is List) {
+      for (final item in v) {
+        if (out.length >= max) break;
+        if (item is Map) {
+          final vals = item.values
+              .where((x) => x is String || x is num)
+              .map((x) => '$x'.trim())
+              .where((x) => x.isNotEmpty)
+              .toList();
+          if (vals.length >= 2) {
+            addLine('${vals.first} — ${vals.skip(1).join(' · ')}');
+          } else if (vals.isNotEmpty) {
+            addLine(vals.first);
+          }
+        } else if (item != null) {
+          addLine('$item');
+        }
+      }
+    } else if (v is Map) {
+      for (final sub in v.entries) {
+        if (out.length >= max) break;
+        final t = '${sub.value ?? ''}'.trim();
+        if (t.isNotEmpty) addLine('${sub.key}: $t');
+      }
+    } else if (v != null) {
+      final t = '$v'.trim();
+      if (t.isNotEmpty) addLine('${e.key}: $t');
+    }
+  }
+  return out;
+}
+
 List<String> _strList(Object? v) => v is List
     ? v.map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toList()
     : (v is String && v.trim().isNotEmpty ? [v.trim()] : const <String>[]);
@@ -390,21 +463,6 @@ class SearchQuestion {
       );
 }
 
-class UsabilityLogEntry {
-  UsabilityLogEntry({
-    required this.id,
-    required this.ms,
-    required this.questions,
-    required this.firstRank,
-    required this.hit,
-  });
-
-  final int id;
-  final int ms;
-  final int questions;
-  final int firstRank;
-  final bool hit;
-}
 
 
 /// 사진 정보에서 '감지 안 됨'을 뜻하는 조각인지 (예: '알 수 없음', '특정 복장 없음', '인원수 확인 불가', '0명')

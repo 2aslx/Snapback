@@ -176,7 +176,7 @@ Future<String?> showPinSetup(BuildContext context) {
   final c = context.sc;
   String? first;
   var mismatch = false;
-  return showDialog<String>(
+  return showSnapDialog<String>(
     context: context,
     barrierColor: const Color(0x66000000),
     builder: (ctx) => Dialog(
