@@ -17,7 +17,7 @@ export { keyOk } from './_lib/config.js';
 
 // IP당 분당 요청 제한 (서버리스에서는 인스턴스별로 집계됨)
 // 사진 분석은 앱이 여러 장을 동시에 보내므로 120회, 임베딩은 기존 사진 채우기(50장씩)·검색어용이라 60회, 나머지(검색·앨범 등)는 30회
-const LIMITS = { analyze: 120, embed: 60 };
+const LIMITS = { analyze: 120, embed: 60, place: 120 }; // place: 앱이 주소를 미리 받아 둠 (지도 서비스 간격 1.1초는 서버가 지킴)
 const hits = new Map();
 const limited = (ip, route) => {
   const k = route + ':' + ip, n = Date.now(), a = (hits.get(k) || []).filter(t => n - t < 60000);

@@ -75,7 +75,14 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         .map((x) => x.trim())
         .where((x) => x.isNotEmpty && !isUnknownInfo(x))
         .join(' · ');
-    final placeText = join([item.place, s.placeNameFor(item) ?? '']);
+    // 촬영 장소 = 장소 유형 + 시·구·동 주소 (예: 카페 · 서울특별시 마포구 동교동).
+    // 위치 정보(GPS)는 있는데 주소를 아직 못 받았으면 '주소 확인 중…', 끝내 못 받으면 안내 (눌러서 지도로 볼 수 있음)
+    final addr = s.placeNameFor(item);
+    final addrLine = addr ??
+        (item.gps == null
+            ? ''
+            : (s.placeLookupFailed(item) ? '주소를 불러오지 못했어요 · 눌러서 지도 보기' : '주소 확인 중…'));
+    final placeLine = join([item.place, addrLine]);
     final info = <(String, String, String)>[
       if (item.isInfoImage) ...[
         // 스크린샷·문서 등 정보성 이미지: 내용 중심 (촬영 장소 대신 출처)
@@ -93,7 +100,7 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
         ('doc', '주요 내용', item.contentSummary),
         // 위치 정보가 실제로 있는 경우만 (없으면 '촬영 장소' 줄을 아예 표시하지 않음)
         if (item.gps != null)
-          ('pin', '촬영 장소', placeText.isNotEmpty ? placeText : '위치 정보 있음'),
+          ('pin', '촬영 장소', placeLine),
       ] else ...[
         ('calendar', '촬영 날짜·시간', join([item.date, item.time])),
         // 장소 유형 + 시·구·동 주소 (좌표는 표시하지 않음)
@@ -101,9 +108,7 @@ class _Screen10MemoryDetailState extends State<Screen10MemoryDetail> {
           'pin',
           '촬영 장소',
           // GPS 만 있고 장소 이름·주소가 아직 없으면 지도로 볼 수 있게 줄은 남긴다
-          placeText.isNotEmpty
-              ? placeText
-              : (item.gps != null ? '위치 정보 있음' : ''),
+          placeLine,
         ),
         // 사람: 새 분석은 '주인공: … / 배경: …' 형식 → 주인공과 배경 인물을 따로 표시
         if (_peopleParts(item.people) case (final main?, final back)) ...[

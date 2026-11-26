@@ -7,14 +7,18 @@ extension SnapbackStorage on SnapbackState {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(SnapbackState._onboardedKey, true);
       // 사진 보관함 사진만 다시 찾을 수 있다 (웹 파일은 다시 읽을 수 없음)
-      await prefs.setStringList(SnapbackState._queueKey, [
+      final keys = [
         for (final e in pickQueue)
           if (e.asset != null) e.key,
-      ]);
+      ];
+      await prefs.setStringList(SnapbackState._queueKey, keys);
+      // iOS: 남은 사진이 있으면 충전 중 백그라운드 분석(BGProcessingTask)을 예약할 수 있게 알림
+      BackgroundAnalysis.setPending(keys.isNotEmpty);
     } catch (_) {}
   }
 
   Future<void> _clearQueue() async {
+    BackgroundAnalysis.setPending(false);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(SnapbackState._queueKey);
@@ -72,6 +76,7 @@ extension SnapbackStorage on SnapbackState {
     found = [];
     placeNames.clear();
     _placeAsked.clear();
+    _placeFails.clear();
     _albumPlans.clear();
     _searchCache.clear();
     removedKeys.clear();

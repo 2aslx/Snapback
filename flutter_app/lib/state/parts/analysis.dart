@@ -101,6 +101,34 @@ extension SnapbackAnalysis on SnapbackState {
     }
   }
 
+  /// iOS 충전 중 백그라운드 작업(BGProcessingTask)이 실행되면: 남은 사진 분석을 이어 하고, 모두 끝나면 true.
+  /// 이미 분석 중이면 그 분석이 끝나거나 멈출 때까지 기다린다.
+  Future<bool> runQueuedAnalysisInBackground() async {
+    if (pickQueue.isEmpty) return true;
+    if (analysisRunning) {
+      final done = Completer<void>();
+      void check() {
+        if (!analysisRunning && !done.isCompleted) done.complete();
+      }
+
+      addListener(check);
+      await done.future;
+      removeListener(check);
+    } else {
+      await startAnalysis(); // 일시정지돼 있던 대기열도 이어서 (끝까지 또는 멈출 때까지 기다림)
+    }
+    return analysisFinished && !analysisPaused;
+  }
+
+  /// iOS 가 허락한 백그라운드 시간이 끝남: 지금 사진까지만 마치고 멈춘 뒤 대기열을 저장 (다음 기회·앱 실행 때 이어서)
+  void pauseForBackgroundExpiry() {
+    if (!analysisRunning || analysisPaused) return;
+    analysisPaused = true;
+    analysisRunning = false;
+    _saveQueue();
+    touch();
+  }
+
   /// 이번 묶음에서 끝난 사진 수 = 분석됨·지움·실패
   void _recountDone() {
     final analyzed = {for (final d in db) d.fileKey, ...removedKeys};

@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_album.dart';
 import '../models/photo_item.dart';
 import '../models/photo_record.dart';
+import '../services/background_analysis.dart';
 import '../services/embedding_store.dart';
 import '../services/hybrid_search.dart';
 import '../services/image_processor.dart';
@@ -389,6 +390,12 @@ class SnapbackState extends ChangeNotifier {
         (prefs.getBool(_onboardedKey) ?? false) || db.any((d) => d.id > 11);
     if (onboarded && screen == 0) screen = 5;
     await _restoreQueue(prefs);
+    // iOS 충전 중 백그라운드 분석: 남은 대기열을 복원한 뒤에 연결 (iOS 가 작업을 시작하면 이어서 분석)
+    BackgroundAnalysis.attach(
+      run: runQueuedAnalysisInBackground,
+      expire: pauseForBackgroundExpiry,
+    );
+    BackgroundAnalysis.setPending(pickQueue.any((e) => e.asset != null));
     EmbeddingStore.load().ignore(); // 검색 1차 선별용 사진 임베딩 — 화면을 막지 않고 뒤에서 읽는다
     ready = true;
     notifyListeners();
@@ -428,6 +435,9 @@ class SnapbackState extends ChangeNotifier {
   /// 좌표(소수 3자리 ≈ 110m, 가까운 사진끼리 같은 주소를 나눠 씀) → 지역명
   final Map<String, String> placeNames = {};
   final Set<String> _placeAsked = {};
+
+  /// 주소 받기에 실패한 횟수 (좌표 키별). 3번까지 다시 시도한다.
+  final Map<String, int> _placeFails = {};
 
   static String? _placeKey(PhotoItem d) {
     final g = d.gps;

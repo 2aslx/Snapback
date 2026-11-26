@@ -239,6 +239,31 @@ void main() {
     expect(s.albumDraft!.title, '11월의 케이크');
   });
 
+  testWidgets('촬영 장소: 위치 정보가 있으면 시·구·동 주소로, 못 받으면 안내 ("위치 정보 있음" 아님)', (tester) async {
+    final s = await startApp(tester, {
+      'snapback_db': jsonEncode([
+        {'id': 12, 'date': '2026-01-01', 'place': '카페', 'caption': '라떼', 'gps': [37.5563, 126.9220]},
+        {'id': 13, 'date': '2026-01-02', 'place': '', 'caption': '거리', 'gps': [35.1587, 129.1604]},
+      ]),
+      'snapback_place_names': jsonEncode({'37.556,126.922': '서울특별시 마포구 동교동'}),
+    });
+    Future<String> placeRow(int id) async {
+      s.openMemory(id);
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(txt('사진 정보').last);
+      await tester.pump(const Duration(milliseconds: 600));
+      final texts = tester.widgetList<Text>(find.byType(Text)).map((t) => (t.data ?? t.textSpan?.toPlainText() ?? '').replaceAll('⁠', ''));
+      expect(texts.any((t) => t.contains('위치 정보 있음')), false);
+      return texts.firstWhere((t) => t.contains('동교동') || t.contains('주소'), orElse: () => '');
+    }
+
+    expect(await placeRow(12), '카페 · 서울특별시 마포구 동교동');
+    s.go(5);
+    await tester.pump(const Duration(milliseconds: 600));
+    s.serverConnected = false; // 주소를 받을 수 없는 상황
+    expect(await placeRow(13), contains('주소를 불러오지 못했어요'));
+  });
+
   testWidgets('사진 탭 정렬: 시간순(월별) ↔ 추가순, 고른 기준은 저장', (tester) async {
     final s = await startApp(tester, {
       'snapback_db': jsonEncode([

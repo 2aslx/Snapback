@@ -39,8 +39,20 @@ extension SnapbackPlaces on SnapbackState {
         if (name != null) {
           placeNames[k] = name;
           changed++;
+          if (changed % 5 == 0) touch(); // 받는 대로 화면에도 반영
+        } else {
+          _placeFailed(k);
         }
-      } catch (_) {}
+      } on ApiException catch (e) {
+        _placeFailed(k, retryable: true);
+        if (e.code == 'rate_limited') {
+          // 요청이 너무 많으면 잠시 쉬었다가 이어서 받는다
+          Future<void>.delayed(const Duration(seconds: 30), prefetchAddresses);
+          break;
+        }
+      } catch (_) {
+        _placeFailed(k, retryable: true);
+      }
       if (changed > 0 && changed % 10 == 0) await _savePlaceNames();
     }
     if (changed > 0) {
@@ -66,7 +78,11 @@ extension SnapbackPlaces on SnapbackState {
       api
           .placeName(d.gps![0], d.gps![1])
           .then((name) async {
-            if (name == null) return;
+            if (name == null) {
+              _placeFailed(k);
+              touch();
+              return;
+            }
             placeNames[k] = name;
             touch();
             try {
@@ -74,8 +90,27 @@ extension SnapbackPlaces on SnapbackState {
               await prefs.setString(SnapbackState._placeNamesKey, jsonEncode(placeNames));
             } catch (_) {}
           })
-          .catchError((_) {}); // 지도 키 없음 등 → 좌표 그대로 표시
+          .catchError((_) {
+            _placeFailed(k, retryable: true); // 다음에 다시 시도 (최대 3번)
+            touch();
+          });
     }
     return null;
+  }
+
+  /// 주소 받기 실패 기록. [retryable] 이면 '요청함' 표시를 지워 다음에 다시 시도한다 (최대 3번).
+  void _placeFailed(String k, {bool retryable = false}) {
+    final n = (_placeFails[k] ?? 0) + 1;
+    _placeFails[k] = n;
+    if (retryable && n < 3) _placeAsked.remove(k);
+  }
+
+  /// 위치 정보는 있는데 주소를 끝내 받지 못했는지 (3번 실패 · 주소 없음 · 서버 연결 안 됨)
+  /// (다시 시도할 수 있는 실패는 '요청함' 표시를 지워 두므로, 실패 기록이 있는데 아직 '요청함'이면 다시 묻지 않는 실패)
+  bool placeLookupFailed(PhotoItem d) {
+    final k = SnapbackState._placeKey(d);
+    if (k == null || _cachedPlace(d) != null) return false;
+    final fails = _placeFails[k] ?? 0;
+    return !serverConnected || fails >= 3 || (fails > 0 && _placeAsked.contains(k));
   }
 }

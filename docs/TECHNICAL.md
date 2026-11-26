@@ -215,6 +215,13 @@ Snapback/
   - 위젯 확장: `ios/SnapbackLiveActivity`
   - 앱과의 연결: `MethodChannel('snapback/live_activity')` (`update/end/cancel`), `LiveActivityBridge.swift`
   - 앱이 백그라운드로 가도 약 30초 동안 분석을 이어 간다(background task).
+- **충전 중 장기 백그라운드 분석 (BGProcessingTask)**
+  - 작업 id `com.snapback.snapbackApp.analysis` (`Info.plist` 의 `BGTaskSchedulerPermittedIdentifiers`, `UIBackgroundModes: processing`).
+  - `AppDelegate.swift` 의 `BackgroundAnalysisBridge` ↔ Flutter `services/background_analysis.dart` (MethodChannel `snapback/background`).
+  - 앱 → iOS: `setPending`(분석할 사진이 남았는지, 대기열 저장·삭제 때) · `ready`(대기열 복원 후). 남은 채로 백그라운드로 가면 `requiresExternalPower`·`requiresNetworkConnectivity` 로 예약.
+  - iOS → 앱: `run`(남은 분석 이어 하기, 끝나면 true) · `expire`(시간 끝 → 지금 사진까지 마치고 멈춤·저장). 남았으면 다시 예약.
+  - 실기기에서 바로 시험: 앱을 백그라운드로 보낸 뒤 Xcode 디버거에서
+    `e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"com.snapback.snapbackApp.analysis"]`
 - 앱 이름 `Snapback`, 앱 아이콘·시작 화면은 캐릭터 이미지를 쓴다.
 
 ---
