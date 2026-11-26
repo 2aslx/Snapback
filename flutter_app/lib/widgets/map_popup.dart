@@ -12,7 +12,7 @@ Future<void> showPhotoMap(
   required double lng,
   required String title,
   String? address,
-}) => showDialog<void>(
+}) => showSnapDialog<void>(
   context: context,
   barrierColor: const Color(0x66000000),
   builder: (ctx) =>

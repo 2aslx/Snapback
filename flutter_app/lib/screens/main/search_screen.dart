@@ -345,76 +345,109 @@ class _Screen13SearchState extends State<Screen13Search>
               ),
             ),
           // [맞아요] / [질문 한 번 더하기]
-          if (!s.questionShown)
-            Row(
-              children: [
-                Expanded(
-                  child: SnapButton(
-                    label: '맞아요',
-                    icon: 'check',
-                    onTap: s.searchBusy ? null : () => s.openMemory(top.id),
+          // 버튼 ↔ 질문 ↔ '더 구분할 질문이 없어요' 가 바뀔 때 부드럽게
+          SnapSwap(
+            child: !s.questionShown
+                ? KeyedSubtree(
+                    key: const ValueKey('buttons'),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SnapButton(
+                            label: '맞아요',
+                            icon: 'check',
+                            onTap: s.searchBusy
+                                ? null
+                                : () => s.openMemory(top.id),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SnapButton(
+                            label: s.searchBusy ? '질문 만드는 중…' : '질문 한 번 더하기',
+                            icon: s.searchBusy ? null : 'chat',
+                            ghost: true,
+                            onTap: s.searchBusy ? null : s.askMore,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : s.activeQuestion != null
+                ? KeyedSubtree(
+                    key: const ValueKey('question'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 8),
+                        SnapBubble(
+                          child: Text(keepWords(s.activeQuestion!.text)),
+                        ),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final o in s.activeQuestion!.options)
+                              SnapChip(
+                                label: o,
+                                onTap: () => s.answerFollowUp(o),
+                              ),
+                            SnapChip(
+                              label: '기억 안 나요',
+                              dashed: true,
+                              onTap: () => s.answerFollowUp('기억 안 나요'),
+                            ),
+                          ],
+                        ),
+                        // 보기에 맞는 답이 없을 때: 직접 입력 (답 또는 새로 떠오른 단서)
+                        const SizedBox(height: 10),
+                        SnapSearchBar(
+                          controller: _answer,
+                          showIcon: false,
+                          hint: '직접 입력하기 (예: 창가 자리였어요)',
+                          busy: s.searchBusy,
+                          onSubmit: _sendAnswer,
+                        ),
+                      ],
+                    ),
+                  )
+                : KeyedSubtree(
+                    key: const ValueKey('done'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SnapNote(
+                          rest.isEmpty
+                              ? '더 구분할 질문이 없어요.'
+                              : '더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.',
+                        ),
+                        SnapButton(
+                          label: '맞아요',
+                          icon: 'check',
+                          onTap: () => s.openMemory(top.id),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: SnapButton(
-                    label: s.searchBusy ? '질문 만드는 중…' : '질문 한 번 더하기',
-                    icon: s.searchBusy ? null : 'chat',
-                    ghost: true,
-                    onTap: s.searchBusy ? null : s.askMore,
-                  ),
-                ),
-              ],
-            )
-          else if (s.activeQuestion != null) ...[
-            const SizedBox(height: 8),
-            SnapBubble(child: Text(keepWords(s.activeQuestion!.text))),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final o in s.activeQuestion!.options)
-                  SnapChip(label: o, onTap: () => s.answerFollowUp(o)),
-                SnapChip(
-                  label: '기억 안 나요',
-                  dashed: true,
-                  onTap: () => s.answerFollowUp('기억 안 나요'),
-                ),
-              ],
-            ),
-            // 보기에 맞는 답이 없을 때: 직접 입력 (답 또는 새로 떠오른 단서)
-            const SizedBox(height: 10),
-            SnapSearchBar(
-              controller: _answer,
-              showIcon: false,
-              hint: '직접 입력하기 (예: 창가 자리였어요)',
-              busy: s.searchBusy,
-              onSubmit: _sendAnswer,
-            ),
-          ] else ...[
-            SnapNote(
-              rest.isEmpty
-                  ? '더 구분할 질문이 없어요.'
-                  : '더 구분할 질문이 없어요. 아래 다른 후보도 확인해 보세요.',
-            ),
-            SnapButton(
-              label: '맞아요',
-              icon: 'check',
-              onTap: () => s.openMemory(top.id),
-            ),
-          ],
+          ),
           // 다른 후보: 3열 바둑판, 일치도 순 (일치도는 표시하지 않음)
-          if (rest.isNotEmpty) ...[
-            const SnapH3('다른 후보'),
-            PhotoGrid(
-              items: [for (final x in rest) byId[x.id]!],
-              // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
-              onTap: (d) {
-                s.pinResult(d.id);
-                _scrollToTop();
-              },
+          SnapReveal(
+            visible: rest.isNotEmpty,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SnapH3('다른 후보'),
+                PhotoGrid(
+                  items: [for (final x in rest) byId[x.id]!],
+                  // 바로 상세로 가지 않고 위로 크게 올려 '맞아요'로 확인 (그래야 기억 탭에 저장됨)
+                  onTap: (d) {
+                    s.pinResult(d.id);
+                    _scrollToTop();
+                  },
+                ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );

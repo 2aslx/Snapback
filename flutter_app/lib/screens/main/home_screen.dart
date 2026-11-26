@@ -30,7 +30,7 @@ class _Screen5HomeState extends State<Screen5Home>
       ('time', '시간순', '찍은 날짜가 최근인 사진부터, 월별로'),
       ('added', '추가순', '앱에 최근 추가한 사진부터'),
     ];
-    final picked = await showDialog<String>(
+    final picked = await showSnapDialog<String>(
       context: context,
       barrierColor: const Color(0x66000000),
       builder: (ctx) => Dialog(
@@ -209,8 +209,9 @@ class _Screen5HomeState extends State<Screen5Home>
           ),
         ),
         // 지난 분석에서 실패한 사진이 있으면 알림 (누르면 분석 진행 화면의 기록으로)
-        if (s.analysisFailed > 0 && !s.analysisRunning)
-          Padding(
+        SnapReveal(
+          visible: s.analysisFailed > 0 && !s.analysisRunning,
+          child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Pressable(
               onTap: () => s.go(4),
@@ -219,12 +220,15 @@ class _Screen5HomeState extends State<Screen5Home>
               ),
             ),
           ),
+        ),
         // 사진을 고를 때 건너뛴 사진 안내 (이미 분석한 사진 등)
-        if (s.pickNotice.isNotEmpty)
-          Padding(
+        SnapReveal(
+          visible: s.pickNotice.isNotEmpty,
+          child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: SnapNote(s.pickNotice, icon: 'alert', top: 0),
           ),
+        ),
         // 검색창: 누르면 이 창이 그대로 검색 화면 위치로 내려간다
         GestureDetector(
           onTap: () => _openSearch(s),
@@ -329,8 +333,9 @@ class _Screen5HomeState extends State<Screen5Home>
                     ],
                   ),
                 ),
-                if (_editing)
-                  Padding(
+                SnapReveal(
+                  visible: _editing,
+                  child: Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,6 +383,7 @@ class _Screen5HomeState extends State<Screen5Home>
                       ],
                     ),
                   ),
+                ),
                 if (!_showAll)
                   PhotoGrid(
                     items: photos.take(9).toList(),
@@ -402,13 +408,15 @@ class _Screen5HomeState extends State<Screen5Home>
                       onTap: (d) => _tapPhoto(s, d),
                     ),
                   ],
-                if (_editing)
-                  SnapButton(
+                SnapReveal(
+                  visible: _editing,
+                  child: SnapButton(
                     label: _sel.isEmpty
                         ? '지울 사진을 골라 주세요'
                         : '선택한 사진 ${_sel.length}장 지우기',
                     onTap: _sel.isEmpty ? null : () => _deleteSelected(s),
                   ),
+                ),
               ],
             ],
           ),

@@ -264,6 +264,33 @@ void main() {
     expect(await placeRow(13), contains('주소를 불러오지 못했어요'));
   });
 
+  testWidgets('창 애니메이션: 팝업은 서서히 뜨고 닫히며, 편집 막대는 스르륵 나타남', (tester) async {
+    await startApp(tester, {'snapback_db': jsonEncode(photos(3))});
+    double opacityOf(Finder f) => tester
+        .widgetList<FadeTransition>(find.ancestor(of: f, matching: find.byType(FadeTransition)))
+        .map((t) => t.opacity.value)
+        .reduce((a, b) => a < b ? a : b);
+
+    // 정렬 기준 팝업
+    await tester.tap(txt('시간순'));
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(opacityOf(txt('정렬 기준')), lessThan(1), reason: '툭 뜨지 않고 서서히');
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(opacityOf(txt('정렬 기준')), 1);
+    await tester.tapAt(const Offset(5, 5)); // 바깥을 누르면 닫힘
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(txt('정렬 기준'), findsOneWidget, reason: '닫힐 때도 서서히');
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(txt('정렬 기준'), findsNothing);
+
+    // 편집 막대
+    await tester.tap(txt('편집'));
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(opacityOf(txt('전체 선택')), lessThan(1));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(opacityOf(txt('전체 선택')), 1);
+  });
+
   testWidgets('사진 탭 정렬: 시간순(월별) ↔ 추가순, 고른 기준은 저장', (tester) async {
     final s = await startApp(tester, {
       'snapback_db': jsonEncode([

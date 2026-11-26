@@ -237,13 +237,35 @@ class _SnapbackShell extends StatelessWidget {
                       bottom: _tabBottom(bottomInset),
                       child: _BottomTabBar(state: state),
                     ),
-                  if (showTabs && miniVisible)
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: _tabBottom(bottomInset) + 72,
-                      child: _MiniProgressCard(state: state),
+                  // 하단 분석 진행 카드: 아래에서 살짝 올라오며 나타나고, 내려가며 사라진다
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: _tabBottom(bottomInset) + 72,
+                    child: AnimatedSwitcher(
+                      duration: reduce
+                          ? Duration.zero
+                          : const Duration(milliseconds: 280),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (c, a) => FadeTransition(
+                        opacity: a,
+                        child: SlideTransition(
+                          position: Tween(
+                            begin: const Offset(0, 0.35),
+                            end: Offset.zero,
+                          ).animate(a),
+                          child: c,
+                        ),
+                      ),
+                      child: showTabs && miniVisible
+                          ? _MiniProgressCard(
+                              key: const ValueKey('mini'),
+                              state: state,
+                            )
+                          : const SizedBox.shrink(key: ValueKey('none')),
                     ),
+                  ),
                   // 검색·앨범·기록 초안 등을 기다리는 동안 맨 아래 얇은 진행 바 (하염없이 기다리지 않게)
                   Positioned(
                     left: 0,
@@ -417,7 +439,7 @@ class _MiniHostState extends State<_MiniHost> {
 
 /// #hb — 탭바 위 하단 분석 진행 바 (작업을 가리지 않도록 한 줄 + 트랙)
 class _MiniProgressCard extends StatelessWidget {
-  const _MiniProgressCard({required this.state});
+  const _MiniProgressCard({super.key, required this.state});
   final SnapbackState state;
 
   static String _n(int v) => v.toString().replaceAllMapped(

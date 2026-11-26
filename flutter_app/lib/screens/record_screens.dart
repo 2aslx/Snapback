@@ -1186,7 +1186,7 @@ class Screen22Records extends StatelessWidget {
   Future<void> _pickView(BuildContext context) async {
     final s = state;
     final c = context.sc;
-    final picked = await showDialog<String>(
+    final picked = await showSnapDialog<String>(
       context: context,
       barrierColor: const Color(0x66000000),
       builder: (ctx) => Dialog(
