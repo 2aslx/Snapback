@@ -70,7 +70,7 @@ class _SnapbackShell extends StatelessWidget {
   static int _lastScreen = -1;
   static bool _back = false;
 
-  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19, 21, 22};
+  static const Set<int> _tabScreens = {5, 6, 7, 10, 11, 13, 14, 15, 16, 18, 19, 21, 22, 23, 24};
 
   Widget _buildScreen() {
     switch (state.screen) {
@@ -108,6 +108,10 @@ class _SnapbackShell extends StatelessWidget {
         return Screen21RecordView(state: state);
       case 22:
         return Screen22Records(state: state);
+      case 23:
+        return Screen23Recaps(state: state);
+      case 24:
+        return Screen24RecapMonth(state: state);
       default:
         return Screen0Welcome(state: state);
     }
@@ -338,7 +342,7 @@ class _BottomTabBar extends StatelessWidget {
             children: _tabs.map((t) {
               final active =
                   state.screen == t.$1 ||
-                  (t.$1 == 19 && const {10, 18, 20}.contains(state.screen)) ||
+                  (t.$1 == 19 && const {10, 18, 20, 23, 24}.contains(state.screen)) ||
                   (t.$1 == 22 && state.screen == 21) ||
                   (t.$1 == 11 && (state.screen == 16 || state.screen == 17));
               final col = active ? c.pk : c.tabMute;

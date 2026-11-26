@@ -41,4 +41,17 @@ void main() {
     expect(buildMonthlyRecap(photos, year: 2026, month: 10)!.photoIds.length, 3);
     expect(buildMonthlyRecap(const []), isNull);
   });
+
+  test('월간 리캡 목록: 사진이 있는 모든 달을 최근 달부터 (1장인 달도)', () {
+    final photos = [
+      p(1, '2025-12-24'),
+      for (var i = 2; i < 5; i++) p(i, '2026-10-0$i'),
+      p(9, '2026-11-01'),
+      p(10, ''), // 날짜 없음은 제외
+    ];
+    final all = buildAllMonthlyRecaps(photos);
+    expect(all.map((r) => (r.year, r.month)), [(2026, 11), (2026, 10), (2025, 12)]);
+    expect(all.map((r) => r.photoIds.length), [1, 3, 1]);
+    expect(buildAllMonthlyRecaps(const []), isEmpty);
+  });
 }

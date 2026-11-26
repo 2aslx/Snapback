@@ -84,8 +84,23 @@ extension SnapbackAlbums on SnapbackState {
   /// 관련된 추억(그날의 사진 · 비슷한 분위기)의 사진들로 앨범 초안을 만들어 미리보기로.
   /// 기준 사진도 맨 앞에 함께 넣는다.
   /// 월간 리캡 (사진이 있는 가장 최근 달): 자주 간 동네·먹은 음식·분위기 요약과 자동 앨범 후보
-  MonthlyRecap? get monthlyRecap =>
-      buildMonthlyRecap(visiblePhotos, addr: addressById);
+  /// 월간 리캡 목록 (화면 23): 사진이 있는 모든 달, 최근 달부터
+  List<MonthlyRecap> get monthlyRecaps =>
+      buildAllMonthlyRecaps(visiblePhotos, addr: addressById);
+
+  /// 월간 리캡 상세 (화면 24)에서 보는 달의 리캡
+  MonthlyRecap? get selectedRecap {
+    final m = recapMonth;
+    if (m == null) return null;
+    return buildMonthlyRecap(visiblePhotos, addr: addressById, year: m.$1, month: m.$2, minPhotos: 1);
+  }
+
+  void openRecaps() => go(23);
+
+  void openRecap(MonthlyRecap r) {
+    recapMonth = (r.year, r.month);
+    go(24);
+  }
 
   /// 사진 목록으로 앨범 미리보기 열기 (월간 리캡 자동 앨범 등). 미리보기에서 뺄 사진·이름을 다듬고 저장.
   void draftAlbum(String title, List<int> ids, {int returnTo = 5}) {

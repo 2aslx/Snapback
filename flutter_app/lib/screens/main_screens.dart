@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/photo_album.dart';
 import '../models/photo_item.dart';
+import '../services/recap.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -23,3 +24,4 @@ part 'main/memories_screen.dart';
 part 'main/album_screens.dart';
 part 'main/settings_screen.dart';
 part 'main/search_screen.dart';
+part 'main/recap_screens.dart';

@@ -355,7 +355,7 @@ class _Screen17AlbumPreviewState extends State<Screen17AlbumPreview> {
               Expanded(
                 child: SnapSub(
                   sel.isEmpty
-                      ? 'AI가 고른 사진 ${photos.length}장이 모두 선택돼 있어요. 빼고 싶은 사진을 눌러 선택을 해제하세요.'
+                      ? '앨범에 넣을 사진 ${photos.length}장이 모두 선택돼 있어요. 빼고 싶은 사진을 눌러 선택을 해제하세요.'
                       : '${photos.length}장 중 ${photos.length - sel.length}장 선택됨',
                 ),
               ),

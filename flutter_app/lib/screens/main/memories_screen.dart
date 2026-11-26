@@ -35,6 +35,11 @@ class _Screen19MemoriesState extends State<Screen19Memories> {
               ),
           ],
         ),
+        // 월간 리캡: 누르면 달마다 모아 둔 리캡 목록(화면 23)으로
+        if (s.visiblePhotos.isNotEmpty) ...[
+          _RecapButton(onTap: s.openRecaps),
+          const SizedBox(height: 22),
+        ],
         // 기록으로 남긴 사진은 하단 '기록' 탭으로 옮김
         if (photos.isEmpty) ...[
           const SnapEmpty(

@@ -259,9 +259,6 @@ class _Screen5HomeState extends State<Screen5Home>
                     title: title,
                     onTap: () => s.openMemory(photo.id),
                   ),
-                // 월간 리캡: 이번 달 자주 간 동네·음식·분위기 + 자동 앨범
-                if (s.monthlyRecap case final recap?)
-                  RecapCard(state: s, recap: recap),
                 // 최근 사진 · 모두 보기
                 Padding(
                   padding: const EdgeInsets.only(top: 26, bottom: 12),

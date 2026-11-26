@@ -138,3 +138,26 @@ MonthlyRecap? buildMonthlyRecap(
     foodPhotoIds: foodIds,
   );
 }
+
+/// 사진이 있는 모든 달의 리캡 (최근 달부터). 월간 리캡 목록 화면용 — 사진이 1장인 달도 포함.
+List<MonthlyRecap> buildAllMonthlyRecaps(
+  List<PhotoItem> photos, {
+  Map<int, String> addr = const {},
+}) {
+  final byMonth = <String, List<PhotoItem>>{};
+  for (final d in photos) {
+    if (!RegExp(r'^\d{4}-\d{2}').hasMatch(d.date)) continue;
+    (byMonth[d.date.substring(0, 7)] ??= []).add(d);
+  }
+  final keys = byMonth.keys.toList()..sort((a, b) => b.compareTo(a));
+  return [
+    for (final k in keys)
+      ?buildMonthlyRecap(
+        byMonth[k]!,
+        addr: addr,
+        year: int.parse(k.substring(0, 4)),
+        month: int.parse(k.substring(5, 7)),
+        minPhotos: 1,
+      ),
+  ];
+}

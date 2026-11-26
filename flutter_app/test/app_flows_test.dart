@@ -223,20 +223,61 @@ void main() {
     expect(done, 1);
   });
 
-  testWidgets('월간 리캡 카드: 요약을 보여 주고 자동 앨범은 미리보기로', (tester) async {
+  testWidgets('월간 리캡: 기억 탭 버튼 → 달별 목록 → 그 달 요약 + 사진 3열', (tester) async {
     final s = await startApp(tester, {
       'snapback_db': jsonEncode([
         for (var i = 12; i < 16; i++)
           {'id': i, 'date': '2026-11-0${i - 11}', 'place': '카페', 'food': ['케이크'], 'kw': ['감성']},
+        {'id': 20, 'date': '2026-10-03', 'place': '공원', 'kw': ['산책']},
       ]),
     });
-    expect(txt('11월의 나'), findsOneWidget);
-    expect(txt('사진 4장'), findsOneWidget);
+    expect(txt('11월의 나'), findsNothing, reason: '사진 탭(홈)에는 리캡을 띄우지 않음');
+    s.go(19); // 기억 탭 맨 위 '월간 리캡' 버튼
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(txt('월간 리캡'));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(s.screen, 23);
+    // 달별 목록: 최근 달부터
+    expect(txt('11월 리캡'), findsOneWidget);
+    expect(txt('10월 리캡'), findsOneWidget);
+    expect(tester.getTopLeft(txt('11월 리캡')).dy, lessThan(tester.getTopLeft(txt('10월 리캡')).dy));
+    await tester.tap(txt('11월 리캡'));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(s.screen, 24);
+    // 맨 위 요약 + 그 달 사진만 3열
+    expect(txt('자주 간 동네'), findsOneWidget);
+    expect(txt('자주 먹은 음식'), findsOneWidget);
+    final grid = tester.widget<PhotoGrid>(find.byType(PhotoGrid));
+    expect(grid.items.map((d) => d.id), [12, 13, 14, 15]);
     await tester.tap(txt('케이크 모음'));
     await tester.pump(const Duration(milliseconds: 600));
     expect(s.screen, 17);
     expect(s.albumDraft!.photoIds, [12, 13, 14, 15]);
     expect(s.albumDraft!.title, '11월의 케이크');
+    expect(s.albumDraftReturn, 24, reason: '미리보기에서 뒤로 가면 그 달 리캡으로');
+    // 맨 아래 '이 리캡으로 앨범 만들기' → 그 달 사진 전체가 미리보기로, 원하지 않는 사진은 빼고 저장
+    s.go(24);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.ensureVisible(txt('이 리캡으로 앨범 만들기'));
+    await tester.pump();
+    await tester.tap(txt('이 리캡으로 앨범 만들기'));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(s.screen, 17);
+    expect(s.albumDraft!.photoIds, [12, 13, 14, 15]);
+    expect(s.albumDraft!.title, '2026년 11월의 기록');
+    s.toggleDraftPhoto(13);
+    final before = s.albums.length;
+    s.confirmAlbumDraft('2026년 11월의 기록');
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(s.albums.length, before + 1);
+    expect(s.albums.firstWhere((a) => a.title == '2026년 11월의 기록').photoIds, isNot(contains(13)));
+    // 사진을 열었다가 뒤로 → 그 달 리캡, 다시 뒤로 → 목록 → 기억 탭
+    s.go(24);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(find.byType(PhotoTile).first);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(s.screen, 10);
+    expect(s.detailReturn, 24);
   });
 
   testWidgets('촬영 장소: 위치 정보가 있으면 시·구·동 주소로, 못 받으면 안내 ("위치 정보 있음" 아님)', (tester) async {
